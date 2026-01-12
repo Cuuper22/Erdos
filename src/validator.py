@@ -46,10 +46,11 @@ def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) 
     keyword, but not the proof body.
     """
     # Pattern to match theorem/lemma declarations
+    # Uses non-greedy matching to handle complex type annotations
     if theorem_name:
-        pattern = rf'(theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)})\s*[^:]*:[^:=]*(?::=|where)'
+        pattern = rf'(theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?(?::=|where)'
     else:
-        pattern = r'(theorem\s+\w+|lemma\s+\w+)\s*[^:]*:[^:=]*(?::=|where)'
+        pattern = r'(theorem\s+\w+|lemma\s+\w+).*?(?::=|where)'
     
     matches = re.findall(pattern, content, re.DOTALL)
     

@@ -193,18 +193,45 @@ The app reads a remote `manifest.json` file hosted on GitHub. Maintainers contro
 
 ---
 
-## 9. File Structure (Phase 1)
+## 9. File Structure (All Phases)
 
 ```
 Erdos/
-├── Plan.md                 # This document
-├── src/
+├── Plan.md                     # This document
+├── README.md                   # Project documentation
+├── manifest.json               # Problem queue definition
+├── requirements.txt            # Python dependencies
+├── .gitignore                  # Git ignore rules
+│
+├── src/                        # Phase 1: Python Backend
 │   ├── __init__.py
-│   ├── solver.py           # Main Prover/Critic loop
-│   ├── sandbox.py          # Lake build process manager
-│   ├── validator.py        # Theorem hash validation & sanity checks
-│   └── config.py           # Configuration management
-├── manifest.json           # Problem queue definition
-├── requirements.txt        # Python dependencies
-└── README.md               # Project documentation
+│   ├── solver.py               # Main Prover/Critic loop
+│   ├── sandbox.py              # Lake build process manager
+│   ├── validator.py            # Theorem hash validation & sanity checks
+│   ├── config.py               # Configuration management
+│   └── environment.py          # Phase 2: Lean/elan environment manager
+│
+├── gui/                        # Phase 3: Tauri Desktop Application
+│   ├── package.json            # Node.js dependencies
+│   ├── vite.config.ts          # Vite build configuration
+│   ├── tsconfig.json           # TypeScript configuration
+│   ├── index.html              # Entry HTML
+│   ├── src/
+│   │   ├── main.tsx            # React entry point
+│   │   ├── App.tsx             # Main application component
+│   │   ├── styles.css          # Global styles
+│   │   └── components/
+│   │       ├── LogViewer.tsx       # Live log streaming
+│   │       ├── SettingsPanel.tsx   # API keys & model selection
+│   │       └── SolutionsGallery.tsx # Found solutions display
+│   └── src-tauri/
+│       ├── Cargo.toml          # Rust dependencies
+│       ├── tauri.conf.json     # Tauri configuration
+│       ├── build.rs            # Build script
+│       └── src/
+│           └── main.rs         # Tauri backend (Rust)
+│
+└── .github/
+    └── workflows/
+        └── build.yml           # CI/CD for multi-platform builds
 ```

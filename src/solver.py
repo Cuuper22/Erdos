@@ -269,16 +269,30 @@ Respond in this exact JSON format:
     def _parse_critique(self, response: str) -> Critique:
         """Parse the LLM response into a Critique object."""
         try:
-            # Try to extract JSON from the response
-            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                return Critique(
-                    status=data.get("status", "FAIL"),
-                    feedback=data.get("feedback", "Unable to parse feedback"),
-                    is_elegant=data.get("is_elegant", False),
-                    security_concerns=data.get("security_concerns", [])
-                )
+            # Try to find and parse JSON from the response
+            # Handle potentially nested JSON by finding balanced braces
+            start_idx = response.find('{')
+            if start_idx != -1:
+                brace_count = 0
+                end_idx = start_idx
+                for i, char in enumerate(response[start_idx:], start_idx):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i + 1
+                            break
+                
+                if end_idx > start_idx:
+                    json_str = response[start_idx:end_idx]
+                    data = json.loads(json_str)
+                    return Critique(
+                        status=data.get("status", "FAIL"),
+                        feedback=data.get("feedback", "Unable to parse feedback"),
+                        is_elegant=data.get("is_elegant", False),
+                        security_concerns=data.get("security_concerns", [])
+                    )
         except json.JSONDecodeError:
             pass
         

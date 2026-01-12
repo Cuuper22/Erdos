@@ -190,8 +190,8 @@ def run_lake_build(
         duration = time.time() - start_time
         return BuildResult(
             success=False,
-            stdout=e.stdout or "" if hasattr(e, 'stdout') else "",
-            stderr=e.stderr or "" if hasattr(e, 'stderr') else "Build timed out",
+            stdout=e.stdout or "",
+            stderr=e.stderr or "Build timed out",
             return_code=-1,
             duration_seconds=duration,
             timeout_occurred=True

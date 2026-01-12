@@ -1,0 +1,29 @@
+{
+  "active_campaign": "Erdos_Problems_Q1_2026",
+  "min_app_version": "1.0.0",
+  "priority_problems": [
+    {
+      "id": "Erdos1024",
+      "path": "FormalConjectures/Erdos/1024.lean",
+      "difficulty": "Hard",
+      "maintainer_note": "Focus on induction strategies. Watch out for divide by zero."
+    },
+    {
+      "id": "Erdos0042",
+      "path": "FormalConjectures/Erdos/0042.lean",
+      "difficulty": "Medium",
+      "maintainer_note": "Consider using omega tactic for integer arithmetic."
+    },
+    {
+      "id": "Erdos0007",
+      "path": "FormalConjectures/Erdos/0007.lean",
+      "difficulty": "Easy",
+      "maintainer_note": "Basic set theory problem. Try simp with set lemmas."
+    }
+  ],
+  "banned_tactics": ["sorry", "admit", "cheating_tactic"],
+  "repository": {
+    "url": "https://github.com/google-deepmind/formal-conjectures",
+    "branch": "main"
+  }
+}

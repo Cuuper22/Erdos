@@ -1,103 +1,48 @@
-# Erdos Proof Mining System
+# Erdos
 
-A consumer-grade desktop application that utilizes user-provided compute and API credits to solve formalized mathematical conjectures in Lean 4.
+Automated mathematical proof mining. You provide compute and API credits, it tries to solve formalized math conjectures in Lean 4.
 
-## Overview
+Uses a Prover/Critic multi-agent loop -- one LLM generates proof attempts, another pokes holes in them, repeat until the Lean compiler is happy or the budget runs out. Theorem statements are SHA-256 hashed so the agents can't quietly change what they're proving.
 
-The Erdos Proof Mining System is designed to help mathematicians and proof engineers solve formal mathematical problems by leveraging Large Language Models (LLMs). The system follows the philosophy of "Trust the Compiler, Verify the Intent" - producing verified, compiled proof artifacts that have passed adversarial review.
+## Status
 
-## Features
+- Phase 1: Headless solver -- done
+- Phase 2: Environment manager (auto-installs Lean/elan) -- done
+- Phase 3: Desktop GUI (Tauri + React) with CI/CD -- done
 
-- **Multi-Agent Architecture**: Uses a Prover agent to generate proofs and a Critic agent to validate quality
-- **Theorem Integrity Protection**: SHA-256 hashing ensures theorem statements cannot be modified
-- **Cost Management**: Built-in budget controls to prevent runaway API costs
-- **Sandboxed Execution**: Isolated build environments prevent corruption of the main installation
-- **Automatic Environment Setup**: Installs Lean/elan automatically in a localized directory
-- **Desktop GUI**: Cross-platform Tauri application with live logs and solution gallery
-
-## Project Structure
-
-```
-Erdos/
-├── Plan.md                     # Development plan and architecture
-├── README.md                   # This file
-├── src/                        # Python Backend
-│   ├── config.py               # Configuration management
-│   ├── solver.py               # Main Prover/Critic loop
-│   ├── sandbox.py              # Lake build process manager
-│   ├── validator.py            # Theorem hash validation
-│   └── environment.py          # Lean/elan environment manager
-├── gui/                        # Tauri Desktop Application
-│   ├── src/                    # React frontend
-│   └── src-tauri/              # Rust backend
-├── manifest.json               # Problem queue definition
-└── .github/workflows/          # CI/CD for builds
-```
+It works. Whether it solves your particular conjecture is a different question.
 
 ## Quick Start
 
-### Option 1: Desktop Application (Recommended)
+### Desktop App
 
-Download the latest release for your platform:
-- **Windows**: `.msi` or `.exe` installer
-- **macOS**: `.dmg` disk image  
-- **Linux**: `.AppImage` or `.deb` package
+Download from releases:
+- Windows: `.msi` / `.exe`
+- macOS: `.dmg`
+- Linux: `.AppImage` / `.deb`
 
-### Option 2: Command Line
+### Command Line
 
-#### Prerequisites
-
-- Python 3.11+
-- Lean 4 / Elan (can be auto-installed)
-- An API key for OpenAI, Anthropic, or a local Ollama instance
-
-#### Installation
-
-1. Clone the repository:
 ```bash
 git clone https://github.com/Cuuper22/Erdos.git
 cd Erdos
-```
-
-2. Install Python dependencies:
-```bash
 pip install -r requirements.txt
+python -m src.environment --install    # sets up Lean toolchain
 ```
 
-3. Set up Lean environment (automatic):
+Set an API key:
 ```bash
-python -m src.environment --install
+export OPENAI_API_KEY="..."
+# or ANTHROPIC_API_KEY, or OLLAMA_URL for local models
 ```
 
-4. Set up your API key:
-```bash
-export OPENAI_API_KEY="your-api-key-here"
-# OR
-export ANTHROPIC_API_KEY="your-api-key-here"
-# OR
-export OLLAMA_URL="http://localhost:11434"
-```
-
-#### Usage
-
-Run the solver with a manifest file:
+Run the solver:
 ```bash
 python -m src.solver --manifest manifest.json
+python -m src.solver --manifest manifest.json --problem-id Erdos1024   # specific problem
 ```
 
-Solve a specific problem:
-```bash
-python -m src.solver --manifest manifest.json --problem-id Erdos1024
-```
-
-Check environment status:
-```bash
-python -m src.environment --status
-```
-
-### Configuration
-
-Create a `config.json` file to customize settings:
+## Configuration
 
 ```json
 {
@@ -107,72 +52,49 @@ Create a `config.json` file to customize settings:
     "temperature_prover": 0.7,
     "temperature_critic": 0.1
   },
-  "cost": {
-    "max_cost_usd": 5.0
-  },
-  "solver": {
-    "max_retries": 10,
-    "build_timeout_seconds": 60
-  }
+  "cost": { "max_cost_usd": 5.0 },
+  "solver": { "max_retries": 10, "build_timeout_seconds": 60 }
 }
 ```
 
-Or use environment variables:
-- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OLLAMA_URL`
-- `LLM_MODEL` - Model to use (default: gpt-4)
-- `MAX_COST_USD` - Maximum spending limit (default: $5)
-- `MAX_RETRIES` - Maximum proof attempts per problem (default: 10)
-- `BUILD_TIMEOUT` - Lean build timeout in seconds (default: 60)
+Or env vars: `LLM_MODEL`, `MAX_COST_USD`, `MAX_RETRIES`, `BUILD_TIMEOUT`.
+
+## Stack
+
+**Backend (Python):** Prover/Critic loop, theorem integrity validation (SHA-256), sandboxed Lean builds, cost tracking
+
+**Environment Manager:** Auto-installs elan + Lean toolchain, manages Lake builds in isolated sandboxes
+
+**Desktop GUI (Tauri v2):** Rust backend + React frontend. Settings panel, live log streaming, solutions gallery.
+
+## Project Structure
+
+```
+Erdos/
+├── src/                    # Python backend
+│   ├── solver.py           # Prover/Critic loop
+│   ├── sandbox.py          # Isolated build environments
+│   ├── validator.py        # Theorem hash verification
+│   ├── environment.py      # Lean/elan management
+│   └── config.py           # Configuration
+├── gui/                    # Tauri desktop app
+│   ├── src/                # React frontend
+│   └── src-tauri/          # Rust backend
+├── manifest.json           # Problem queue
+└── .github/workflows/      # CI/CD
+```
 
 ## Development
 
-### Building the Desktop App
-
 ```bash
 cd gui
 npm install
-npm run tauri build
+npm run tauri dev      # dev mode
+npm run tauri build    # release build
 ```
 
-### Running in Development Mode
-
-```bash
-cd gui
-npm install
-npm run tauri dev
-```
-
-## Architecture
-
-The system consists of three main components:
-
-1. **Python Backend** (`src/`): Core proof mining logic
-   - Multi-agent Prover/Critic loop
-   - Theorem integrity validation
-   - Sandbox build management
-
-2. **Environment Manager** (`src/environment.py`): Lean toolchain management
-   - Automatic elan installation
-   - Repository cloning and caching
-   - Toolchain version management
-
-3. **Tauri GUI** (`gui/`): Desktop application
-   - Settings panel for API keys and models
-   - Live log streaming
-   - Solutions gallery
-
-## Development Phases
-
-See [Plan.md](Plan.md) for the complete development roadmap.
-
-- ✅ **Phase 1**: Headless MVP with core solver logic
-- ✅ **Phase 2**: Environment manager for automated Lean installation  
-- ✅ **Phase 3**: Desktop GUI with Tauri + CI/CD for builds
-
-## Contributing
-
-Contributions are welcome! Please read the plan document to understand the architecture before submitting changes.
+See [Plan.md](Plan.md) for the full roadmap.
 
 ## License
 
-This project is open source. See LICENSE for details.
+Open source. See LICENSE.

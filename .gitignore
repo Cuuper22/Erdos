@@ -55,7 +55,12 @@ yarn-error.log*
 
 # Rust/Tauri
 gui/src-tauri/target/
+gui/src-tauri/binaries/
 gui/dist/
+
+# PyInstaller
+*.spec.bak
+erdos-solver
 
 # Tauri build artifacts
 *.app

@@ -7,17 +7,84 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-tauri:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest
+        run: python -m pytest tests/ -v
+
+  build-python:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        include:
+          - platform: ubuntu-latest
+            artifact: erdos-solver-linux
+            binary: dist/erdos-solver
+          - platform: windows-latest
+            artifact: erdos-solver-windows
+            binary: dist/erdos-solver.exe
+          - platform: macos-latest
+            artifact: erdos-solver-macos
+            binary: dist/erdos-solver
 
     runs-on: ${{ matrix.platform }}
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e "."
+
+      - name: Build Python executable
+        run: pyinstaller erdos-solver.spec
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+
+  build-tauri:
+    needs: [test, build-python]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            python-artifact: erdos-solver-linux
+            sidecar-name: erdos-solver
+          - platform: windows-latest
+            python-artifact: erdos-solver-windows
+            sidecar-name: erdos-solver.exe
+          - platform: macos-latest
+            python-artifact: erdos-solver-macos
+            sidecar-name: erdos-solver
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,6 +100,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Download Python sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.python-artifact }}
+          path: gui/src-tauri/binaries
+
+      - name: Make sidecar executable (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: chmod +x gui/src-tauri/binaries/${{ matrix.sidecar-name }}
+
       - name: Install frontend dependencies
         working-directory: gui
         run: npm install
@@ -47,42 +124,15 @@ jobs:
           releaseName: 'Erdos Proof Miner v__VERSION__'
           releaseBody: |
             ## Erdos Proof Mining System
-            
+
             Download the appropriate installer for your platform:
             - **Windows**: `.msi` or `.exe` installer
             - **macOS**: `.dmg` disk image
             - **Linux**: `.AppImage` or `.deb` package
-            
-            ### Requirements
-            - Python 3.11+
-            - OpenAI/Anthropic API key or local Ollama instance
+
+            ### What's Included
+            - Python solver bundled (no Python installation required)
+            - Lean 4 / elan auto-installer
+            - Multi-provider LLM support (OpenAI, Anthropic, Google, Ollama)
           releaseDraft: true
           prerelease: false
-
-  build-python:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -e "."
-
-      - name: Build Python executable
-        run: |
-          pyinstaller --onefile --name erdos-solver src/solver.py
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: erdos-solver-linux
-          path: dist/erdos-solver

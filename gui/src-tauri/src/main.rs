@@ -240,22 +240,46 @@ async fn start_mining(
     state.is_running.store(true, Ordering::SeqCst);
     emit_status(&window, "started", "Mining session starting", None);
 
-    let python_cmd = if Command::new("python3").arg("--version").output().is_ok() {
-        "python3"
-    } else {
-        "python"
-    };
-
     emit_log(&window, "info", &format!(
         "Starting mining with {} / {} (budget: ${:.2})",
         settings.provider, settings.model, settings.max_cost
     ));
 
-    // Build the command
-    let mut cmd = Command::new(python_cmd);
-    cmd.args(["-m", "src.solver", "--manifest", "manifest.json", "--json-logs"])
-        .current_dir("..")
-        .stdout(Stdio::piped())
+    // Try sidecar binary first, fall back to Python
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+
+    let sidecar_path = exe_dir.as_ref().map(|d| {
+        if cfg!(windows) {
+            d.join("erdos-solver.exe")
+        } else {
+            d.join("erdos-solver")
+        }
+    });
+
+    let use_sidecar = sidecar_path.as_ref().map(|p| p.exists()).unwrap_or(false);
+
+    let mut cmd = if use_sidecar {
+        let path = sidecar_path.unwrap();
+        emit_log(&window, "info", "Using bundled solver binary");
+        let mut c = Command::new(&path);
+        c.args(["--manifest", "manifest.json", "--json-logs"]);
+        c
+    } else {
+        let python_cmd = if Command::new("python3").arg("--version").output().is_ok() {
+            "python3"
+        } else {
+            "python"
+        };
+        emit_log(&window, "info", &format!("Using Python: {}", python_cmd));
+        let mut c = Command::new(python_cmd);
+        c.args(["-m", "src.solver", "--manifest", "manifest.json", "--json-logs"])
+            .current_dir("..");
+        c
+    };
+
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     // Set provider-specific env vars

@@ -1,11 +1,33 @@
 """Tests for LLM providers."""
 
+import sys
 import os
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
 from src.llm import LLMProvider, MockLLMProvider, GeminiProvider
 from src.llm.gemini import GeminiAPIError
+
+# Create mock modules for optional SDKs so tests work without them installed
+_mock_openai = MagicMock()
+_mock_openai.OpenAI = MagicMock
+_mock_openai.RateLimitError = type('RateLimitError', (Exception,), {})
+_mock_openai.APIStatusError = type('APIStatusError', (Exception,), {'status_code': 500})
+
+_mock_anthropic = MagicMock()
+_mock_anthropic.Anthropic = MagicMock
+_mock_anthropic.RateLimitError = type('RateLimitError', (Exception,), {})
+_mock_anthropic.OverloadedError = type('OverloadedError', (Exception,), {})
+_mock_anthropic.APIStatusError = type('APIStatusError', (Exception,), {'status_code': 500})
+
+# Inject mock modules if real ones aren't installed
+if 'openai' not in sys.modules:
+    sys.modules['openai'] = _mock_openai
+if 'anthropic' not in sys.modules:
+    sys.modules['anthropic'] = _mock_anthropic
+
+from src.llm.openai_provider import OpenAIProvider, OpenAIAPIError
+from src.llm.anthropic_provider import AnthropicProvider, AnthropicAPIError
 
 
 class TestMockProvider:
@@ -183,3 +205,177 @@ class TestGeminiProvider:
         """Test that GoogleProvider is an alias for GeminiProvider."""
         from src.llm.gemini import GoogleProvider
         assert GoogleProvider is GeminiProvider
+
+
+class TestOpenAIProvider:
+    """Tests for OpenAIProvider."""
+
+    def _make_provider(self, **kwargs):
+        """Helper to create an OpenAIProvider with mocked openai client."""
+        mock_client = Mock()
+        with patch.object(sys.modules['openai'], 'OpenAI', return_value=mock_client):
+            provider = OpenAIProvider(api_key='sk-test', **kwargs)
+        return provider, mock_client
+
+    def test_openai_init_without_api_key(self):
+        """Test OpenAI provider requires API key."""
+        old = os.environ.pop('OPENAI_API_KEY', None)
+        try:
+            with pytest.raises(ValueError, match="OpenAI API key not provided"):
+                OpenAIProvider()
+        finally:
+            if old:
+                os.environ['OPENAI_API_KEY'] = old
+
+    def test_openai_init_with_explicit_key(self):
+        """Test OpenAI provider initialization with explicit key."""
+        provider, _ = self._make_provider(model='gpt-4')
+        assert provider.api_key == 'sk-test'
+        assert provider.model_name == 'gpt-4'
+
+    def test_openai_generate_mock_response(self):
+        """Test OpenAI generate with mocked response."""
+        provider, mock_client = self._make_provider()
+
+        mock_choice = Mock()
+        mock_choice.message.content = "proof by simp"
+        mock_usage = Mock()
+        mock_usage.prompt_tokens = 40
+        mock_usage.completion_tokens = 80
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.usage = mock_usage
+
+        mock_client.chat.completions.create.return_value = mock_response
+
+        response, in_tokens, out_tokens = provider.generate("test prompt")
+        assert response == "proof by simp"
+        assert in_tokens == 40
+        assert out_tokens == 80
+
+    def test_openai_generate_raises_on_non_transient_error(self):
+        """Test non-transient errors raise OpenAIAPIError."""
+        provider, mock_client = self._make_provider(max_retries=1)
+        mock_client.chat.completions.create.side_effect = Exception("Invalid auth")
+
+        with pytest.raises(OpenAIAPIError, match="Generation failed"):
+            provider.generate("test")
+
+        assert mock_client.chat.completions.create.call_count == 1
+
+    def test_openai_generate_retries_transient_errors(self):
+        """Test transient errors are retried."""
+        provider, mock_client = self._make_provider(max_retries=2)
+
+        mock_choice = Mock()
+        mock_choice.message.content = "ok"
+        mock_usage = Mock()
+        mock_usage.prompt_tokens = 10
+        mock_usage.completion_tokens = 5
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        mock_response.usage = mock_usage
+
+        mock_client.chat.completions.create.side_effect = [
+            Exception("429 rate limit"),
+            mock_response,
+        ]
+
+        with patch('src.llm.openai_provider.time.sleep'):
+            response, _, _ = provider.generate("test")
+
+        assert response == "ok"
+        assert mock_client.chat.completions.create.call_count == 2
+
+    def test_openai_repr(self):
+        """Test string representation."""
+        provider, _ = self._make_provider(model='gpt-4o')
+        assert repr(provider) == "OpenAIProvider(model=gpt-4o)"
+
+
+class TestAnthropicProvider:
+    """Tests for AnthropicProvider."""
+
+    def _make_provider(self, **kwargs):
+        """Helper to create an AnthropicProvider with mocked client."""
+        mock_client = Mock()
+        with patch.object(sys.modules['anthropic'], 'Anthropic', return_value=mock_client):
+            provider = AnthropicProvider(api_key='sk-ant-test', **kwargs)
+        return provider, mock_client
+
+    def test_anthropic_init_without_api_key(self):
+        """Test Anthropic provider requires API key."""
+        old = os.environ.pop('ANTHROPIC_API_KEY', None)
+        try:
+            with pytest.raises(ValueError, match="Anthropic API key not provided"):
+                AnthropicProvider()
+        finally:
+            if old:
+                os.environ['ANTHROPIC_API_KEY'] = old
+
+    def test_anthropic_init_with_explicit_key(self):
+        """Test Anthropic provider initialization."""
+        provider, _ = self._make_provider(model='claude-haiku-4-5-20251001')
+        assert provider.api_key == 'sk-ant-test'
+        assert provider.model_name == 'claude-haiku-4-5-20251001'
+
+    def test_anthropic_generate_mock_response(self):
+        """Test Anthropic generate with mocked response."""
+        provider, mock_client = self._make_provider()
+
+        mock_block = Mock()
+        mock_block.type = "text"
+        mock_block.text = "proof complete"
+        mock_usage = Mock()
+        mock_usage.input_tokens = 30
+        mock_usage.output_tokens = 60
+        mock_response = Mock()
+        mock_response.content = [mock_block]
+        mock_response.usage = mock_usage
+
+        mock_client.messages.create.return_value = mock_response
+
+        response, in_tokens, out_tokens = provider.generate("test prompt")
+        assert response == "proof complete"
+        assert in_tokens == 30
+        assert out_tokens == 60
+
+    def test_anthropic_generate_raises_on_non_transient_error(self):
+        """Test non-transient errors raise AnthropicAPIError."""
+        provider, mock_client = self._make_provider(max_retries=1)
+        mock_client.messages.create.side_effect = Exception("Invalid key")
+
+        with pytest.raises(AnthropicAPIError, match="Generation failed"):
+            provider.generate("test")
+
+        assert mock_client.messages.create.call_count == 1
+
+    def test_anthropic_generate_retries_transient_errors(self):
+        """Test transient errors are retried."""
+        provider, mock_client = self._make_provider(max_retries=2)
+
+        mock_block = Mock()
+        mock_block.type = "text"
+        mock_block.text = "ok"
+        mock_usage = Mock()
+        mock_usage.input_tokens = 10
+        mock_usage.output_tokens = 5
+        mock_response = Mock()
+        mock_response.content = [mock_block]
+        mock_response.usage = mock_usage
+
+        mock_client.messages.create.side_effect = [
+            Exception("529 overloaded"),
+            mock_response,
+        ]
+
+        with patch('src.llm.anthropic_provider.time.sleep'):
+            response, _, _ = provider.generate("test")
+
+        assert response == "ok"
+        assert mock_client.messages.create.call_count == 2
+
+    def test_anthropic_repr(self):
+        """Test string representation."""
+        provider, _ = self._make_provider()
+        assert repr(provider) == f"AnthropicProvider(model={AnthropicProvider.DEFAULT_MODEL})"

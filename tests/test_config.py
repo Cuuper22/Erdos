@@ -12,19 +12,28 @@ from src.config import Config, LLMConfig, CostConfig, SolverConfig
 
 class TestConfigFromEnv(unittest.TestCase):
     """Test configuration loading from environment variables."""
-    
+
+    # Keys that must be preserved for Path.home() and OS functionality
+    _SYSTEM_KEYS = {"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
+
     def setUp(self):
         """Save original environment."""
         self.original_env = os.environ.copy()
-    
+
     def tearDown(self):
         """Restore original environment."""
         os.environ.clear()
         os.environ.update(self.original_env)
+
+    def _clean_env(self):
+        """Clear env but preserve system-critical keys."""
+        saved = {k: os.environ[k] for k in self._SYSTEM_KEYS if k in os.environ}
+        os.environ.clear()
+        os.environ.update(saved)
     
     def test_loads_google_api_key(self):
         """Test that GOOGLE_API_KEY is detected."""
-        os.environ.clear()
+        self._clean_env()
         os.environ["GOOGLE_API_KEY"] = "test_key_123"
         
         config = Config.from_env()
@@ -34,7 +43,7 @@ class TestConfigFromEnv(unittest.TestCase):
     
     def test_loads_openai_api_key(self):
         """Test that OPENAI_API_KEY is detected."""
-        os.environ.clear()
+        self._clean_env()
         os.environ["OPENAI_API_KEY"] = "sk-test123"
         
         config = Config.from_env()
@@ -44,7 +53,7 @@ class TestConfigFromEnv(unittest.TestCase):
     
     def test_loads_anthropic_api_key(self):
         """Test that ANTHROPIC_API_KEY is detected."""
-        os.environ.clear()
+        self._clean_env()
         os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test123"
         
         config = Config.from_env()
@@ -54,7 +63,7 @@ class TestConfigFromEnv(unittest.TestCase):
     
     def test_loads_max_cost_usd(self):
         """Test that MAX_COST_USD is loaded."""
-        os.environ.clear()
+        self._clean_env()
         os.environ["ERDOS_MOCK_MODE"] = "1"
         os.environ["MAX_COST_USD"] = "10.0"
         
@@ -64,7 +73,7 @@ class TestConfigFromEnv(unittest.TestCase):
     
     def test_loads_max_retries(self):
         """Test that MAX_RETRIES is loaded."""
-        os.environ.clear()
+        self._clean_env()
         os.environ["ERDOS_MOCK_MODE"] = "1"
         os.environ["MAX_RETRIES"] = "20"
         
@@ -74,7 +83,7 @@ class TestConfigFromEnv(unittest.TestCase):
     
     def test_raises_without_api_key(self):
         """Test that config raises error when no API key is set."""
-        os.environ.clear()
+        self._clean_env()
         
         with self.assertRaises(ValueError) as context:
             Config.from_env()
@@ -83,7 +92,7 @@ class TestConfigFromEnv(unittest.TestCase):
     
     def test_allows_mock_mode(self):
         """Test that ERDOS_MOCK_MODE bypasses API key requirement."""
-        os.environ.clear()
+        self._clean_env()
         os.environ["ERDOS_MOCK_MODE"] = "1"
         
         # Should not raise

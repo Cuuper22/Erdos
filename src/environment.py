@@ -519,10 +519,10 @@ def main():
     if args.status:
         status = manager.get_status()
         print(f"App Directory: {status.app_dir}")
-        print(f"Elan: {'✓ ' + (status.elan_version or '') if status.elan_installed else '✗ Not installed'}")
-        print(f"Lean: {'✓ ' + (status.lean_version or '') if status.lean_installed else '✗ Not installed'}")
-        print(f"Lake: {'✓ ' + (status.lake_version or '') if status.lake_installed else '✗ Not installed'}")
-        print(f"Ready: {'✓' if status.is_ready() else '✗'}")
+        print(f"Elan: {'[OK] ' + (status.elan_version or '') if status.elan_installed else '[X] Not installed'}")
+        print(f"Lean: {'[OK] ' + (status.lean_version or '') if status.lean_installed else '[X] Not installed'}")
+        print(f"Lake: {'[OK] ' + (status.lake_version or '') if status.lake_installed else '[X] Not installed'}")
+        print(f"Ready: {'[OK]' if status.is_ready() else '[X]'}")
     
     elif args.install:
         status = manager.setup_environment(repo_url=args.repo, branch=args.branch)

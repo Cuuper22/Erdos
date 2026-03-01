@@ -48,33 +48,33 @@ def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) 
     The theorem statement is everything up to and including the := or where
     keyword, but not the proof body.
     """
-    # Pattern to match theorem/lemma declarations
+    # Pattern to match theorem/lemma declarations up to :=
     # Uses non-greedy matching to handle complex type annotations
     if theorem_name:
-        pattern = rf'(theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?(?::=|where)'
+        pattern = rf'(?:theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?:='
     else:
-        pattern = r'(theorem\s+\w+|lemma\s+\w+).*?(?::=|where)'
-    
-    matches = re.findall(pattern, content, re.DOTALL)
-    
-    if not matches:
-        # Fallback: try to find any theorem/lemma line
-        lines = content.split('\n')
-        theorem_lines = []
-        in_theorem = False
-        
-        for line in lines:
-            if re.match(r'\s*(theorem|lemma)\s+\w+', line):
-                in_theorem = True
-            
-            if in_theorem:
-                theorem_lines.append(line)
-                if ':=' in line or 'where' in line:
-                    break
-        
-        return '\n'.join(theorem_lines)
-    
-    return matches[0] if isinstance(matches[0], str) else matches[0][0]
+        pattern = r'(?:theorem\s+\w+|lemma\s+\w+).*?:='
+
+    match = re.search(pattern, content, re.DOTALL)
+
+    if match:
+        return match.group(0)
+
+    # Fallback: try to find any theorem/lemma line
+    lines = content.split('\n')
+    theorem_lines = []
+    in_theorem = False
+
+    for line in lines:
+        if re.match(r'\s*(theorem|lemma)\s+\w+', line):
+            in_theorem = True
+
+        if in_theorem:
+            theorem_lines.append(line)
+            if ':=' in line or 'where' in line:
+                break
+
+    return '\n'.join(theorem_lines)
 
 
 def compute_theorem_hash(content: str, theorem_name: Optional[str] = None) -> str:

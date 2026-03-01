@@ -103,9 +103,9 @@ class TestGeminiProvider:
         with patch('google.generativeai.configure'):
             with patch('google.generativeai.GenerativeModel') as mock_model_class:
                 # Create mock response without usage metadata
-                mock_response = Mock()
+                mock_response = Mock(spec=['text'])
                 mock_response.text = "response text"
-                # No usage_metadata attribute
+                # spec=['text'] ensures usage_metadata is not present
                 
                 mock_model = Mock()
                 mock_model.generate_content.return_value = mock_response

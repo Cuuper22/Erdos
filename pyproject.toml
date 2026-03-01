@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "erdos-prover"
+version = "0.1.0"
+description = "LLM-powered Lean 4 proof mining system with adversarial multi-agent validation"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Cuper", email = "cuuper225@gmail.com"}
+]
+keywords = ["lean4", "proof-assistant", "llm", "theorem-proving", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "google-generativeai>=0.8.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.7.0"]
+all = [
+    "openai>=1.0.0",
+    "anthropic>=0.7.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+erdos-solve = "src.solver:main"
+erdos-env = "src.environment:main"
+
+[project.urls]
+Homepage = "https://github.com/Cuuper22/Erdos"
+Repository = "https://github.com/Cuuper22/Erdos"
+Issues = "https://github.com/Cuuper22/Erdos/issues"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

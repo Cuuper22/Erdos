@@ -2,17 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use tauri::{Manager, State, Window};
-use log::{info, warn, error};
-use chrono;
+use std::sync::{Arc, Mutex};
+use tauri::{State, Window};
+use log::{info, warn};
 
-// Global state for mining control
-struct MiningState {
-    is_running: AtomicBool,
-}
+// ── Event types emitted to the frontend ──
 
 #[derive(Clone, Serialize)]
 struct LogEvent {
@@ -22,12 +19,38 @@ struct LogEvent {
 }
 
 #[derive(Clone, Serialize)]
-struct SolutionEvent {
-    problem_id: String,
-    timestamp: String,
-    attempts: i32,
-    status: String,
+struct CostUpdateEvent {
+    cost_usd: f64,
+    total_spent_usd: f64,
+    remaining_usd: f64,
+    input_tokens: u64,
+    output_tokens: u64,
 }
+
+#[derive(Clone, Serialize)]
+struct SolutionFoundEvent {
+    problem_id: String,
+    attempts: i32,
+    proof_preview: String,
+    is_elegant: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct AttemptResultEvent {
+    problem_id: String,
+    attempt: i32,
+    status: String,
+    message: String,
+}
+
+#[derive(Clone, Serialize)]
+struct MiningStatusEvent {
+    status: String,  // "started", "stopped", "crashed", "completed"
+    message: String,
+    exit_code: Option<i32>,
+}
+
+// ── Settings from the frontend ──
 
 #[derive(Deserialize)]
 struct Settings {
@@ -38,47 +61,135 @@ struct Settings {
     ollama_url: String,
 }
 
+// ── Shared state ──
+
+struct MiningState {
+    is_running: AtomicBool,
+    child: Mutex<Option<u32>>,  // PID of the running process
+}
+
+// ── Helper: emit a log event ──
+
 fn emit_log(window: &Window, level: &str, message: &str) {
     let event = LogEvent {
         timestamp: chrono::Utc::now().to_rfc3339(),
         level: level.to_string(),
         message: message.to_string(),
     };
-    if let Err(e) = window.emit("log-event", event) {
-        error!("Failed to emit log event: {}", e);
+    let _ = window.emit("log-event", event);
+}
+
+fn emit_status(window: &Window, status: &str, message: &str, exit_code: Option<i32>) {
+    let event = MiningStatusEvent {
+        status: status.to_string(),
+        message: message.to_string(),
+        exit_code,
+    };
+    let _ = window.emit("mining-status", event);
+}
+
+// ── Parse a JSON line from the Python process ──
+
+fn parse_and_emit_json_line(window: &Window, line: &str) {
+    let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
+    match parsed {
+        Ok(value) => {
+            let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+            match event_type {
+                "log" => {
+                    emit_log(
+                        window,
+                        value.get("level").and_then(|v| v.as_str()).unwrap_or("info"),
+                        value.get("message").and_then(|v| v.as_str()).unwrap_or(""),
+                    );
+                }
+                "cost_update" => {
+                    let event = CostUpdateEvent {
+                        cost_usd: value.get("cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        total_spent_usd: value.get("total_spent_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        remaining_usd: value.get("remaining_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        input_tokens: value.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                        output_tokens: value.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                    };
+                    let _ = window.emit("cost-update", event);
+                }
+                "solution_found" => {
+                    let event = SolutionFoundEvent {
+                        problem_id: value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        attempts: value.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                        proof_preview: value.get("proof_preview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        is_elegant: value.get("is_elegant").and_then(|v| v.as_bool()).unwrap_or(false),
+                    };
+                    let _ = window.emit("solution-found", event);
+                }
+                "attempt_result" => {
+                    let event = AttemptResultEvent {
+                        problem_id: value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        attempt: value.get("attempt").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                        status: value.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        message: value.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    };
+                    let _ = window.emit("attempt-result", event);
+                }
+                "problem_started" => {
+                    emit_log(window, "info", &format!(
+                        "Starting problem: {}",
+                        value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("?")
+                    ));
+                }
+                "problem_failed" => {
+                    emit_log(window, "warning", &format!(
+                        "Problem {} failed after {} attempts",
+                        value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                        value.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0),
+                    ));
+                }
+                "mining_complete" => {
+                    emit_log(window, "success", &format!(
+                        "Mining complete: {}/{} solved, ${:.4} spent",
+                        value.get("solved").and_then(|v| v.as_i64()).unwrap_or(0),
+                        value.get("total_problems").and_then(|v| v.as_i64()).unwrap_or(0),
+                        value.get("total_cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    ));
+                }
+                _ => {
+                    // Unknown event type — emit as raw log
+                    emit_log(window, "debug", line);
+                }
+            }
+        }
+        Err(_) => {
+            // Not JSON — emit as plain log
+            if !line.trim().is_empty() {
+                emit_log(window, "info", line);
+            }
+        }
     }
 }
 
+// ── Commands ──
+
 #[tauri::command]
 fn check_environment() -> bool {
-    // Check if Python is available
     let python_check = Command::new("python3")
         .arg("--version")
-        .output();
-    
-    if python_check.is_err() {
-        return false;
-    }
-    
-    // Check if elan/lean is available (optional)
-    let lean_check = Command::new("lean")
-        .arg("--version")
-        .output();
-    
-    // Return true if at least Python is available
-    python_check.is_ok()
+        .output()
+        .or_else(|_| Command::new("python").arg("--version").output());
+
+    python_check.map(|o| o.status.success()).unwrap_or(false)
 }
 
 #[tauri::command]
 async fn setup_environment(window: Window) -> Result<bool, String> {
     emit_log(&window, "info", "Checking Python installation...");
-    
-    // Check Python
-    let python_check = Command::new("python3")
-        .arg("--version")
-        .output();
-    
-    match python_check {
+
+    let python_cmd = if Command::new("python3").arg("--version").output().is_ok() {
+        "python3"
+    } else {
+        "python"
+    };
+
+    match Command::new(python_cmd).arg("--version").output() {
         Ok(output) => {
             let version = String::from_utf8_lossy(&output.stdout);
             emit_log(&window, "success", &format!("Python found: {}", version.trim()));
@@ -88,28 +199,26 @@ async fn setup_environment(window: Window) -> Result<bool, String> {
             return Err("Python not found".to_string());
         }
     }
-    
-    emit_log(&window, "info", "Checking Lean/elan installation...");
-    
-    // Try to run the environment setup script
-    let setup_result = Command::new("python3")
+
+    emit_log(&window, "info", "Setting up Lean/elan environment...");
+
+    let setup_result = Command::new(python_cmd)
         .args(["-m", "src.environment", "--install"])
         .current_dir("..")
         .output();
-    
+
     match setup_result {
         Ok(output) => {
             if output.status.success() {
                 emit_log(&window, "success", "Environment setup complete!");
-                Ok(true)
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 emit_log(&window, "warning", &format!("Setup completed with warnings: {}", stderr));
-                Ok(true)
             }
+            Ok(true)
         }
         Err(e) => {
-            emit_log(&window, "warning", &format!("Could not run setup script: {}. Manual setup may be required.", e));
+            emit_log(&window, "warning", &format!("Setup script error: {}. Manual setup may be required.", e));
             Ok(true)
         }
     }
@@ -124,83 +233,184 @@ async fn start_mining(
     if state.is_running.load(Ordering::SeqCst) {
         return Err("Mining is already running".to_string());
     }
-    
+
     state.is_running.store(true, Ordering::SeqCst);
-    
-    emit_log(&window, "info", &format!("Starting mining with {} / {}", settings.provider, settings.model));
-    emit_log(&window, "info", &format!("Budget limit: ${:.2}", settings.max_cost));
-    
-    // Set environment variables for the Python script
-    let mut env_vars = vec![
-        ("MAX_COST_USD", settings.max_cost.to_string()),
-        ("LLM_MODEL", settings.model.clone()),
-    ];
-    
+    emit_status(&window, "started", "Mining session starting", None);
+
+    let python_cmd = if Command::new("python3").arg("--version").output().is_ok() {
+        "python3"
+    } else {
+        "python"
+    };
+
+    emit_log(&window, "info", &format!(
+        "Starting mining with {} / {} (budget: ${:.2})",
+        settings.provider, settings.model, settings.max_cost
+    ));
+
+    // Build the command
+    let mut cmd = Command::new(python_cmd);
+    cmd.args(["-m", "src.solver", "--manifest", "manifest.json", "--json-logs"])
+        .current_dir("..")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    // Set provider-specific env vars
+    cmd.env("MAX_COST_USD", settings.max_cost.to_string());
+    cmd.env("LLM_MODEL", &settings.model);
+
     match settings.provider.as_str() {
-        "openai" => env_vars.push(("OPENAI_API_KEY", settings.api_key.clone())),
-        "anthropic" => env_vars.push(("ANTHROPIC_API_KEY", settings.api_key.clone())),
-        "ollama" => env_vars.push(("OLLAMA_URL", settings.ollama_url.clone())),
+        "openai" => { cmd.env("OPENAI_API_KEY", &settings.api_key); }
+        "anthropic" => { cmd.env("ANTHROPIC_API_KEY", &settings.api_key); }
+        "google" => {
+            cmd.env("GEMINI_API_KEY", &settings.api_key);
+            cmd.env("GOOGLE_API_KEY", &settings.api_key);
+        }
+        "ollama" => { cmd.env("OLLAMA_URL", &settings.ollama_url); }
         _ => {}
     }
-    
-    emit_log(&window, "info", "Loading problem manifest...");
-    
-    // Run the Python solver
-    let mut cmd = Command::new("python3");
-    cmd.args(["-m", "src.solver", "--manifest", "manifest.json"])
-        .current_dir("..");
-    
-    for (key, value) in env_vars {
-        cmd.env(key, value);
+
+    // Spawn the process
+    let mut child: Child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            state.is_running.store(false, Ordering::SeqCst);
+            emit_status(&window, "crashed", &format!("Failed to start: {}", e), None);
+            return Err(format!("Failed to spawn process: {}", e));
+        }
+    };
+
+    // Store PID for stop_mining
+    let pid = child.id();
+    {
+        let mut pid_lock = state.child.lock().unwrap();
+        *pid_lock = Some(pid);
     }
-    
-    match cmd.output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            
-            for line in stdout.lines() {
-                if !line.is_empty() {
-                    emit_log(&window, "info", line);
+
+    info!("Mining process spawned with PID {}", pid);
+
+    // Read stdout in a separate thread (line-by-line streaming)
+    let stdout = child.stdout.take().expect("stdout was piped");
+    let window_clone = window.clone();
+    let stdout_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => parse_and_emit_json_line(&window_clone, &line),
+                Err(e) => {
+                    warn!("Error reading stdout: {}", e);
+                    break;
                 }
             }
-            
-            if !stderr.is_empty() {
-                for line in stderr.lines() {
-                    let line_lower = line.to_lowercase();
-                    if line_lower.contains("error") {
-                        emit_log(&window, "error", line);
-                    } else if line_lower.contains("warning") {
-                        emit_log(&window, "warning", line);
-                    } else {
-                        emit_log(&window, "info", line);
-                    }
+        }
+    });
+
+    // Read stderr in a separate thread
+    let stderr = child.stderr.take().expect("stderr was piped");
+    let window_clone2 = window.clone();
+    let stderr_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            match line {
+                Ok(line) if !line.trim().is_empty() => {
+                    let level = if line.to_lowercase().contains("error") { "error" }
+                        else if line.to_lowercase().contains("warning") { "warning" }
+                        else { "info" };
+                    emit_log(&window_clone2, level, &line);
                 }
+                _ => {}
             }
-            
-            if output.status.success() {
+        }
+    });
+
+    // Wait for process to exit
+    let exit_status = child.wait();
+
+    // Wait for reader threads to finish
+    let _ = stdout_handle.join();
+    let _ = stderr_handle.join();
+
+    // Clear stored PID
+    {
+        let mut pid_lock = state.child.lock().unwrap();
+        *pid_lock = None;
+    }
+
+    state.is_running.store(false, Ordering::SeqCst);
+
+    match exit_status {
+        Ok(status) => {
+            let code = status.code();
+            if status.success() {
+                emit_status(&window, "completed", "Mining session completed", code);
                 emit_log(&window, "success", "Mining session completed successfully!");
             } else {
-                emit_log(&window, "warning", "Mining session ended with errors");
+                emit_status(&window, "crashed", &format!("Process exited with code {:?}", code), code);
+                emit_log(&window, "error", &format!("Mining process exited with code {:?}", code));
             }
         }
         Err(e) => {
-            emit_log(&window, "error", &format!("Failed to start mining: {}", e));
+            emit_status(&window, "crashed", &format!("Process error: {}", e), None);
+            emit_log(&window, "error", &format!("Mining process error: {}", e));
         }
     }
-    
+
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_mining(
+    window: Window,
+    state: State<'_, Arc<MiningState>>,
+) -> Result<(), String> {
+    if !state.is_running.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    let pid = {
+        let pid_lock = state.child.lock().unwrap();
+        *pid_lock
+    };
+
+    if let Some(pid) = pid {
+        emit_log(&window, "info", &format!("Stopping mining process (PID {})", pid));
+
+        // Platform-specific process kill
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: use taskkill /t to kill the process tree
+            let _ = Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .output();
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Unix: send SIGTERM, then SIGKILL after a delay
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGKILL);
+                }
+            });
+        }
+
+        emit_status(&window, "stopped", "Mining stopped by user", None);
+    }
+
     state.is_running.store(false, Ordering::SeqCst);
     Ok(())
 }
 
 #[tauri::command]
-fn stop_mining(state: State<'_, Arc<MiningState>>) -> Result<(), String> {
-    state.is_running.store(false, Ordering::SeqCst);
-    Ok(())
+fn is_mining_running(state: State<'_, Arc<MiningState>>) -> bool {
+    state.is_running.load(Ordering::SeqCst)
 }
 
 fn main() {
-    // Initialize logging
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
         .init();
@@ -210,12 +420,14 @@ fn main() {
     tauri::Builder::default()
         .manage(Arc::new(MiningState {
             is_running: AtomicBool::new(false),
+            child: Mutex::new(None),
         }))
         .invoke_handler(tauri::generate_handler![
             check_environment,
             setup_environment,
             start_mining,
-            stop_mining
+            stop_mining,
+            is_mining_running
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

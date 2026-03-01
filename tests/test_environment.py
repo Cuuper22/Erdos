@@ -180,6 +180,61 @@ class TestToolchainManagement:
         mock_show.assert_not_called()
 
 
+class TestRepoIntegrity:
+    """Test repository integrity verification."""
+
+    def test_valid_lean_repo(self, tmp_path):
+        mgr = EnvironmentManager(app_dir=tmp_path)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "lean-toolchain").write_text("leanprover/lean4:v4.3.0")
+        (repo / "lakefile.lean").write_text("-- lakefile")
+
+        assert mgr.verify_repo_integrity(repo)
+
+    def test_missing_toolchain(self, tmp_path):
+        mgr = EnvironmentManager(app_dir=tmp_path)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "lakefile.lean").write_text("-- lakefile")
+
+        assert not mgr.verify_repo_integrity(repo)
+
+    def test_toml_lakefile_accepted(self, tmp_path):
+        mgr = EnvironmentManager(app_dir=tmp_path)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "lean-toolchain").write_text("leanprover/lean4:v4.3.0")
+        (repo / "lakefile.toml").write_text("[package]")
+
+        assert mgr.verify_repo_integrity(repo)
+
+
+class TestCleanupOldRepos:
+    """Test selective repo cleanup."""
+
+    def test_cleanup_all(self, tmp_path):
+        mgr = EnvironmentManager(app_dir=tmp_path)
+        mgr.ensure_directories()
+        (mgr.repos_dir / "repo1").mkdir()
+        (mgr.repos_dir / "repo2").mkdir()
+
+        removed = mgr.cleanup_old_repos()
+        assert removed == 2
+        assert not (mgr.repos_dir / "repo1").exists()
+
+    def test_cleanup_keeps_specified(self, tmp_path):
+        mgr = EnvironmentManager(app_dir=tmp_path)
+        mgr.ensure_directories()
+        (mgr.repos_dir / "keep_me").mkdir()
+        (mgr.repos_dir / "remove_me").mkdir()
+
+        removed = mgr.cleanup_old_repos(keep=["keep_me"])
+        assert removed == 1
+        assert (mgr.repos_dir / "keep_me").exists()
+        assert not (mgr.repos_dir / "remove_me").exists()
+
+
 class TestRepositoryUpdate:
     """Test repository update uses fast-forward instead of hard reset."""
 

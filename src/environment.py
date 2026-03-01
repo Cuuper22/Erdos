@@ -456,8 +456,19 @@ class EnvironmentManager:
         repo_url: str,
         repo_name: Optional[str] = None,
         branch: str = "main",
+        depth: Optional[int] = 1,
     ) -> Optional[Path]:
-        """Clone a repository into the repos directory."""
+        """Clone a repository into the repos directory.
+
+        Args:
+            repo_url: Git repository URL
+            repo_name: Name for the local directory (derived from URL if not given)
+            branch: Branch to clone
+            depth: Shallow clone depth (None for full clone)
+
+        Returns:
+            Path to cloned repository, or None if failed
+        """
         self.ensure_directories()
 
         if repo_name is None:
@@ -473,10 +484,14 @@ class EnvironmentManager:
 
         logger.info(f"Cloning {repo_url} to {repo_path}")
 
+        cmd = ["git", "clone", "--branch", branch]
+        if depth is not None:
+            cmd.extend(["--depth", str(depth)])
+        cmd.extend([repo_url, str(repo_path)])
+
         try:
             result = subprocess.run(
-                ["git", "clone", "--branch", branch, "--depth", "1",
-                 repo_url, str(repo_path)],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -484,6 +499,8 @@ class EnvironmentManager:
 
             if result.returncode == 0:
                 logger.info(f"Repository cloned successfully to {repo_path}")
+                if not self.verify_repo_integrity(repo_path):
+                    logger.warning("Repository integrity check failed (non-fatal)")
                 return repo_path
             else:
                 logger.error(f"Failed to clone repository: {result.stderr}")
@@ -491,6 +508,47 @@ class EnvironmentManager:
         except Exception as e:
             logger.error(f"Error cloning repository: {e}")
             return None
+
+    def verify_repo_integrity(self, repo_path: Path) -> bool:
+        """Verify a repository has expected structure for Lean projects.
+
+        Checks for lean-toolchain and lakefile.lean presence.
+        """
+        has_toolchain = (repo_path / "lean-toolchain").exists()
+        has_lakefile = (
+            (repo_path / "lakefile.lean").exists()
+            or (repo_path / "lakefile.toml").exists()
+        )
+
+        if not has_toolchain:
+            logger.warning(f"No lean-toolchain found in {repo_path}")
+        if not has_lakefile:
+            logger.warning(f"No lakefile found in {repo_path}")
+
+        return has_toolchain
+
+    def cleanup_old_repos(self, keep: Optional[list[str]] = None) -> int:
+        """Remove cached repositories not in the keep list.
+
+        Args:
+            keep: List of repo names to keep. If None, removes all.
+
+        Returns:
+            Number of repos removed.
+        """
+        if not self.repos_dir.exists():
+            return 0
+
+        keep_set = set(keep) if keep else set()
+        removed = 0
+
+        for entry in self.repos_dir.iterdir():
+            if entry.is_dir() and entry.name not in keep_set:
+                logger.info(f"Removing cached repo: {entry.name}")
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += 1
+
+        return removed
 
     def _update_repository(self, repo_path: Path, branch: str) -> Optional[Path]:
         """Update an existing repository using fast-forward only (non-destructive)."""

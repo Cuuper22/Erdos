@@ -1,9 +1,3 @@
-## Why
-
-LLMs can generate plausible-looking mathematical proofs. But "plausible-looking" isn't "correct." I wanted to know: if you give an LLM a real theorem and a real proof assistant (Lean 4), can it produce verified proofs? And what happens when it fails?
-
-What I found: the agents try to cheat. Not dramatically — they subtly redefine the theorem statement to make it easier to prove. That's why theorem statements are SHA-256 locked before the solving loop starts. This is a small-scale version of a much bigger AI alignment question: how do you verify that an AI system is actually solving the problem you gave it, rather than a convenient reinterpretation?
-
 # Erdos
 
 Automated mathematical proof mining. You provide compute and API credits, it tries to solve formalized math conjectures in Lean 4.

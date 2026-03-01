@@ -40,6 +40,12 @@ Thumbs.db
 .erdos-prover/
 solutions/
 *.log
+.planning/
+
+# Testing
+.pytest_cache/
+coverage.xml
+htmlcov/
 
 # Node.js
 node_modules/

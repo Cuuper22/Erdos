@@ -28,10 +28,19 @@ interface Solution {
   isElegant?: boolean
 }
 
+interface AttemptResult {
+  problem_id: string
+  attempt: number
+  status: string
+  message: string
+}
+
 interface CostUpdate {
   cost_usd: number
   total_spent_usd: number
   remaining_usd: number
+  input_tokens: number
+  output_tokens: number
 }
 
 interface MiningStatus {
@@ -55,6 +64,9 @@ function App() {
   const [solutions, setSolutions] = useState<Solution[]>([])
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [currentCost, setCurrentCost] = useState(0)
+  const [totalTokens, setTotalTokens] = useState({ input: 0, output: 0 })
+  const [currentProblem, setCurrentProblem] = useState<string | null>(null)
+  const [attemptCount, setAttemptCount] = useState(0)
   const [environmentReady, setEnvironmentReady] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -83,6 +95,22 @@ function App() {
       }),
       listen<CostUpdate>('cost-update', (event) => {
         setCurrentCost(event.payload.total_spent_usd)
+        setTotalTokens({ input: event.payload.input_tokens, output: event.payload.output_tokens })
+      }),
+      listen<AttemptResult>('attempt-result', (event) => {
+        setCurrentProblem(event.payload.problem_id)
+        setAttemptCount(event.payload.attempt)
+        if (event.payload.status === 'failed') {
+          const failSolution: Solution = {
+            problemId: event.payload.problem_id,
+            timestamp: new Date().toISOString(),
+            attempts: event.payload.attempt,
+            status: 'failed',
+          }
+          setSolutions(prev => [failSolution, ...prev.filter(s =>
+            !(s.problemId === event.payload.problem_id && s.status === 'failed')
+          )])
+        }
       }),
       listen<MiningStatus>('mining-status', (event) => {
         const { status } = event.payload
@@ -255,6 +283,37 @@ function App() {
                 Clear Logs
               </button>
             </div>
+
+            {isRunning && (
+              <div className="mining-progress">
+                <div className="progress-row">
+                  <span className="progress-label">Budget</span>
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${Math.min((currentCost / settings.maxCost) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <span className="progress-value">
+                    ${currentCost.toFixed(4)} / ${settings.maxCost.toFixed(2)}
+                  </span>
+                </div>
+                {currentProblem && (
+                  <div className="progress-row">
+                    <span className="progress-label">Working on</span>
+                    <span className="progress-value current-problem">{currentProblem}</span>
+                    <span className="progress-value">Attempt #{attemptCount}</span>
+                  </div>
+                )}
+                <div className="progress-row">
+                  <span className="progress-label">Tokens</span>
+                  <span className="progress-value">
+                    {totalTokens.input.toLocaleString()} in / {totalTokens.output.toLocaleString()} out
+                  </span>
+                </div>
+              </div>
+            )}
+
             <LogViewer logs={logs} />
           </div>
         )}

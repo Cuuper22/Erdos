@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/tauri'
 import { listen } from '@tauri-apps/api/event'
 import SettingsPanel from './components/SettingsPanel'
@@ -7,7 +7,7 @@ import SolutionsGallery from './components/SolutionsGallery'
 
 interface Settings {
   apiKey: string
-  provider: 'openai' | 'anthropic' | 'ollama'
+  provider: 'openai' | 'anthropic' | 'google' | 'ollama'
   model: string
   maxCost: number
   ollamaUrl: string
@@ -15,7 +15,7 @@ interface Settings {
 
 interface LogEntry {
   timestamp: string
-  level: 'info' | 'warning' | 'error' | 'success'
+  level: 'info' | 'warning' | 'error' | 'success' | 'debug'
   message: string
 }
 
@@ -24,6 +24,28 @@ interface Solution {
   timestamp: string
   attempts: number
   status: 'success' | 'failed'
+  proofPreview?: string
+  isElegant?: boolean
+}
+
+interface CostUpdate {
+  cost_usd: number
+  total_spent_usd: number
+  remaining_usd: number
+}
+
+interface MiningStatus {
+  status: 'started' | 'stopped' | 'crashed' | 'completed'
+  message: string
+  exit_code: number | null
+}
+
+const DEFAULT_SETTINGS: Settings = {
+  apiKey: '',
+  provider: 'google',
+  model: 'gemini-3-flash',
+  maxCost: 5.0,
+  ollamaUrl: 'http://localhost:11434',
 }
 
 function App() {
@@ -31,41 +53,82 @@ function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [solutions, setSolutions] = useState<Solution[]>([])
-  const [settings, setSettings] = useState<Settings>({
-    apiKey: '',
-    provider: 'openai',
-    model: 'gpt-4',
-    maxCost: 5.0,
-    ollamaUrl: 'http://localhost:11434'
-  })
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [currentCost, setCurrentCost] = useState(0)
   const [environmentReady, setEnvironmentReady] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Load settings and check environment on startup
   useEffect(() => {
-    // Listen for log events from backend
-    const unlisten = listen<LogEntry>('log-event', (event) => {
-      setLogs(prev => [...prev, event.payload].slice(-500)) // Keep last 500 logs
-    })
-
-    // Listen for solution events
-    const unlistenSolution = listen<Solution>('solution-found', (event) => {
-      setSolutions(prev => [event.payload, ...prev])
-    })
-
-    // Listen for cost updates
-    const unlistenCost = listen<number>('cost-update', (event) => {
-      setCurrentCost(event.payload)
-    })
-
-    // Check environment status
+    loadSettings()
     checkEnvironment()
+  }, [])
+
+  // Event listeners
+  useEffect(() => {
+    const unlisteners = [
+      listen<LogEntry>('log-event', (event) => {
+        setLogs(prev => [...prev, event.payload].slice(-500))
+      }),
+      listen<Solution>('solution-found', (event) => {
+        const solution: Solution = {
+          problemId: event.payload.problemId || (event.payload as any).problem_id || '',
+          timestamp: event.payload.timestamp || new Date().toISOString(),
+          attempts: event.payload.attempts || 0,
+          status: 'success',
+          proofPreview: event.payload.proofPreview || (event.payload as any).proof_preview,
+          isElegant: event.payload.isElegant || (event.payload as any).is_elegant,
+        }
+        setSolutions(prev => [solution, ...prev])
+      }),
+      listen<CostUpdate>('cost-update', (event) => {
+        setCurrentCost(event.payload.total_spent_usd)
+      }),
+      listen<MiningStatus>('mining-status', (event) => {
+        const { status } = event.payload
+        if (status === 'stopped' || status === 'crashed' || status === 'completed') {
+          setIsRunning(false)
+        }
+      }),
+    ]
 
     return () => {
-      unlisten.then(fn => fn())
-      unlistenSolution.then(fn => fn())
-      unlistenCost.then(fn => fn())
+      unlisteners.forEach(p => p.then(fn => fn()))
     }
   }, [])
+
+  // Auto-save settings on change (debounced 1s)
+  const handleSettingsChange = useCallback((newSettings: Settings) => {
+    setSettings(newSettings)
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveSettings(newSettings)
+    }, 1000)
+  }, [])
+
+  const loadSettings = async () => {
+    try {
+      const loaded = await invoke<Settings | null>('load_settings')
+      if (loaded) {
+        setSettings(loaded)
+      }
+    } catch (e) {
+      console.log('No saved settings found, using defaults')
+    }
+  }
+
+  const saveSettings = async (s: Settings) => {
+    try {
+      // Don't persist the API key in the settings file
+      const toSave = { ...s, apiKey: '' }
+      await invoke('save_settings', { settings: toSave })
+    } catch (e) {
+      console.error('Failed to save settings:', e)
+    }
+  }
 
   const checkEnvironment = async () => {
     try {
@@ -92,7 +155,7 @@ function App() {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
-      message
+      message,
     }
     setLogs(prev => [...prev, entry].slice(-500))
   }, [])
@@ -109,6 +172,7 @@ function App() {
     }
 
     setIsRunning(true)
+    setCurrentCost(0)
     addLog('info', 'Starting proof mining...')
 
     try {
@@ -136,16 +200,16 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🔢 Erdos Proof Miner</h1>
+        <h1>Erdos Proof Miner</h1>
         <div className="header-stats">
           <span className="stat">
-            💰 Cost: ${currentCost.toFixed(2)} / ${settings.maxCost.toFixed(2)}
+            Cost: ${currentCost.toFixed(4)} / ${settings.maxCost.toFixed(2)}
           </span>
           <span className="stat">
-            ✅ Solutions: {solutions.filter(s => s.status === 'success').length}
+            Solutions: {solutions.filter(s => s.status === 'success').length}
           </span>
           <span className={`status ${environmentReady ? 'ready' : 'not-ready'}`}>
-            {environmentReady ? '🟢 Ready' : '🔴 Setup Required'}
+            {environmentReady ? 'Ready' : 'Setup Required'}
           </span>
         </div>
       </header>
@@ -155,19 +219,19 @@ function App() {
           className={activeTab === 'mining' ? 'active' : ''}
           onClick={() => setActiveTab('mining')}
         >
-          ⛏️ Mining
+          Mining
         </button>
         <button
           className={activeTab === 'settings' ? 'active' : ''}
           onClick={() => setActiveTab('settings')}
         >
-          ⚙️ Settings
+          Settings
         </button>
         <button
           className={activeTab === 'solutions' ? 'active' : ''}
           onClick={() => setActiveTab('solutions')}
         >
-          🏆 Solutions ({solutions.filter(s => s.status === 'success').length})
+          Solutions ({solutions.filter(s => s.status === 'success').length})
         </button>
       </nav>
 
@@ -177,7 +241,7 @@ function App() {
             <div className="controls">
               {!environmentReady && (
                 <button className="btn btn-setup" onClick={setupEnvironment}>
-                  🔧 Setup Environment
+                  Setup Environment
                 </button>
               )}
               <button
@@ -185,10 +249,10 @@ function App() {
                 onClick={isRunning ? stopMining : startMining}
                 disabled={!environmentReady}
               >
-                {isRunning ? '⏹️ Stop Mining' : '▶️ Start Mining'}
+                {isRunning ? 'Stop Mining' : 'Start Mining'}
               </button>
               <button className="btn btn-clear" onClick={clearLogs}>
-                🗑️ Clear Logs
+                Clear Logs
               </button>
             </div>
             <LogViewer logs={logs} />
@@ -198,7 +262,7 @@ function App() {
         {activeTab === 'settings' && (
           <SettingsPanel
             settings={settings}
-            onSettingsChange={setSettings}
+            onSettingsChange={handleSettingsChange}
           />
         )}
 

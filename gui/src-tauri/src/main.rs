@@ -2,7 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -52,10 +54,11 @@ struct MiningStatusEvent {
 
 // ── Settings from the frontend ──
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Settings {
     api_key: String,
-    provider: String,
+    provider: String,  // "openai", "anthropic", "google", "ollama"
     model: String,
     max_cost: f64,
     ollama_url: String,
@@ -410,6 +413,43 @@ fn is_mining_running(state: State<'_, Arc<MiningState>>) -> bool {
     state.is_running.load(Ordering::SeqCst)
 }
 
+// ── Settings persistence ──
+
+fn settings_path() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    home.join(".erdos-prover").join("settings.json")
+}
+
+#[tauri::command]
+fn save_settings(settings: Settings) -> Result<(), String> {
+    let path = settings_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+
+    info!("Settings saved to {:?}", path);
+    Ok(())
+}
+
+#[tauri::command]
+fn load_settings() -> Result<Option<Settings>, String> {
+    let path = settings_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let settings: Settings = serde_json::from_str(&contents).map_err(|e| {
+        warn!("Corrupt settings file, using defaults: {}", e);
+        e.to_string()
+    })?;
+
+    Ok(Some(settings))
+}
+
 fn main() {
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
@@ -427,7 +467,9 @@ fn main() {
             setup_environment,
             start_mining,
             stop_mining,
-            is_mining_running
+            is_mining_running,
+            save_settings,
+            load_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -65,6 +65,33 @@ python -m src.solver --manifest manifest.json
   - Anthropic Claude
   - Local models via Ollama
 
+
+## LLM Provider Architecture
+
+Erdos uses a modular LLM provider system with multiple backends:
+
+### Gemini (Google AI) - **Recommended** (Official SDK)
+
+**Status:** Fully implemented using official  SDK
+
+- **Free tier:** 1500 requests/day, generous quotas
+- **Models:** `gemini-2.0-flash` (default, fastest), `gemini-pro` (more capable)
+- **Get API key:** https://ai.google.dev/
+- **Setup:** `export GEMINI_API_KEY="your-key"` or `export GOOGLE_API_KEY="your-key"`
+
+**Why the official SDK?**
+- Better error handling and automatic retries
+- Accurate token counting for cost management
+- Support for latest Gemini features
+- More robust than direct REST calls
+
+### Other Providers (Coming Soon)
+
+- **OpenAI:** Planned
+- **Anthropic:** Planned  
+- **Ollama (local):** Planned
+- **Mock (testing):** Built-in, no API key needed
+
 ## Configuration
 
 ```json

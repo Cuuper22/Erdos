@@ -1,5 +1,9 @@
 # Core dependencies
-requests>=2.31.0
+google-generativeai>=0.8.0  # Official Gemini SDK (replaces direct REST calls)
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
 
 # Future dependencies (for additional providers):
 # openai>=1.0.0

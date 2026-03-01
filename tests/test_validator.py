@@ -2,14 +2,19 @@
 Tests for the validator module.
 """
 
+import tempfile
 import unittest
 from pathlib import Path
 from src.validator import (
     compute_theorem_hash,
     extract_theorem_statement,
     validate_theorem_integrity,
+    validate_lean_file,
     check_banned_patterns,
     check_dangerous_io,
+    check_suspicious_imports,
+    run_security_check,
+    SecurityReport,
     ValidationResult,
     TheoremLocker
 )
@@ -207,6 +212,170 @@ class TestTheoremLocker(unittest.TestCase):
         
         with self.assertRaises(ValueError):
             locker.verify_theorem("unknown_problem", content)
+
+
+class TestNewBannedPatterns(unittest.TestCase):
+    """Test newly added banned patterns."""
+
+    def test_detects_native_decide(self):
+        content = "theorem test : True := by native_decide"
+        errors = check_banned_patterns(content)
+        self.assertTrue(any("native_decide" in e for e in errors))
+
+    def test_detects_eval_io(self):
+        content = '#eval IO.println "hello"'
+        errors = check_banned_patterns(content)
+        self.assertTrue(any("#eval" in e.lower() or "IO" in e for e in errors))
+
+    def test_eval_without_io_is_clean(self):
+        content = "#eval 1 + 1"
+        errors = check_banned_patterns(content)
+        self.assertFalse(any("#eval" in e.lower() for e in errors))
+
+    def test_axiom_declaration_allowed(self):
+        """axiom declarations (axiom name : type) should NOT be banned."""
+        content = "axiom myAxiom : Nat -> Nat"
+        errors = check_banned_patterns(content)
+        self.assertFalse(any("axiom" in e.lower() for e in errors))
+
+
+class TestNewIOPatterns(unittest.TestCase):
+    """Test newly added IO patterns."""
+
+    def test_detects_io_getstdin(self):
+        content = "let input <- IO.getStdin"
+        errors = check_dangerous_io(content)
+        self.assertTrue(any("getStdin" in e for e in errors))
+
+    def test_detects_io_print(self):
+        content = "IO.print something"
+        errors = check_dangerous_io(content)
+        self.assertTrue(any("IO.print" in e for e in errors))
+
+    def test_detects_system_filepath(self):
+        content = "open System.FilePath"
+        errors = check_dangerous_io(content)
+        self.assertTrue(any("FilePath" in e for e in errors))
+
+    def test_detects_io_process(self):
+        content = "import IO.Process"
+        errors = check_dangerous_io(content)
+        self.assertTrue(any("IO.Process" in e for e in errors))
+
+
+class TestSuspiciousImports(unittest.TestCase):
+    """Test suspicious import detection (warnings)."""
+
+    def test_detects_system_import(self):
+        content = "import System\ntheorem test := by rfl"
+        warnings = check_suspicious_imports(content)
+        self.assertTrue(any("System" in w for w in warnings))
+
+    def test_detects_io_fs_import(self):
+        content = "import IO.FS\ntheorem test := by rfl"
+        warnings = check_suspicious_imports(content)
+        self.assertTrue(any("IO.FS" in w for w in warnings))
+
+    def test_detects_lean_elab_command(self):
+        content = "import Lean.Elab.Command"
+        warnings = check_suspicious_imports(content)
+        self.assertTrue(any("metaprogramming" in w.lower() for w in warnings))
+
+    def test_detects_lean_elab_tactic(self):
+        content = "import Lean.Elab.Tactic"
+        warnings = check_suspicious_imports(content)
+        self.assertTrue(any("custom tactics" in w.lower() for w in warnings))
+
+    def test_clean_imports_pass(self):
+        content = "import Mathlib.Tactic\ntheorem test := by rfl"
+        warnings = check_suspicious_imports(content)
+        self.assertEqual(len(warnings), 0)
+
+
+class TestSecurityReport(unittest.TestCase):
+    """Test SecurityReport dataclass."""
+
+    def test_clean_code_is_safe(self):
+        report = run_security_check("theorem test : 1 + 1 = 2 := by rfl")
+        self.assertTrue(report.is_safe)
+        self.assertFalse(report.has_warnings)
+
+    def test_sorry_makes_unsafe(self):
+        report = run_security_check("theorem test := by sorry")
+        self.assertFalse(report.is_safe)
+        self.assertTrue(len(report.banned_patterns) > 0)
+
+    def test_io_makes_unsafe(self):
+        report = run_security_check("let x <- IO.FS.readFile \"test\"")
+        self.assertFalse(report.is_safe)
+        self.assertTrue(len(report.io_violations) > 0)
+
+    def test_suspicious_import_gives_warning(self):
+        report = run_security_check("import System\ntheorem test := by rfl")
+        self.assertTrue(report.is_safe)  # warnings don't make it unsafe
+        self.assertTrue(report.has_warnings)
+
+    def test_combined_violations(self):
+        content = "import System\nIO.FS.readFile \"x\"\ntheorem t := by sorry"
+        report = run_security_check(content)
+        self.assertFalse(report.is_safe)
+        self.assertTrue(len(report.banned_patterns) > 0)
+        self.assertTrue(len(report.io_violations) > 0)
+        self.assertTrue(report.has_warnings)
+
+
+class TestValidateIntegrityWithSecurity(unittest.TestCase):
+    """Test that validate_theorem_integrity includes security analysis."""
+
+    def test_result_includes_security_report(self):
+        content = "theorem test : 1 + 1 = 2 := by rfl"
+        result = validate_theorem_integrity(content, content)
+        self.assertIsNotNone(result.security)
+        self.assertIsInstance(result.security, SecurityReport)
+
+    def test_banned_pattern_fails_validation(self):
+        content = "theorem test : 1 + 1 = 2 := by sorry"
+        result = validate_theorem_integrity(content, content)
+        self.assertFalse(result.is_valid)
+        self.assertTrue(any("sorry" in e.lower() for e in result.errors))
+
+    def test_suspicious_import_becomes_warning(self):
+        content = "import Lean.Elab.Command\ntheorem test : 1 + 1 = 2 := by rfl"
+        result = validate_theorem_integrity(content, content)
+        self.assertTrue(result.is_valid)  # warnings don't fail
+        self.assertTrue(len(result.warnings) > 0)
+
+
+class TestValidateLeanFile(unittest.TestCase):
+    """Test file-level validation."""
+
+    def test_nonexistent_file(self):
+        result = validate_lean_file(Path("/nonexistent/file.lean"))
+        self.assertFalse(result.is_valid)
+        self.assertTrue(any("does not exist" in e for e in result.errors))
+
+    def test_non_lean_file(self):
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
+            f.write(b"print('hello')")
+            f.flush()
+            result = validate_lean_file(Path(f.name))
+        self.assertFalse(result.is_valid)
+        self.assertTrue(any("Not a Lean file" in e for e in result.errors))
+
+    def test_valid_lean_file(self):
+        with tempfile.NamedTemporaryFile(suffix=".lean", delete=False, mode="w") as f:
+            f.write("theorem test : 1 + 1 = 2 := by rfl\n")
+            f.flush()
+            result = validate_lean_file(Path(f.name))
+        self.assertTrue(result.is_valid)
+        self.assertIsNotNone(result.security)
+
+    def test_lean_file_with_sorry(self):
+        with tempfile.NamedTemporaryFile(suffix=".lean", delete=False, mode="w") as f:
+            f.write("theorem test : 1 + 1 = 2 := by sorry\n")
+            f.flush()
+            result = validate_lean_file(Path(f.name))
+        self.assertFalse(result.is_valid)
 
 
 if __name__ == '__main__':

@@ -1,33 +1,62 @@
 """
 Validator module for the Erdos Proof Mining System.
 
-This module provides theorem integrity validation and sanity checks
-to ensure proofs are legitimate and don't modify theorem statements.
+Provides theorem integrity validation and security checks
+to ensure proofs are legitimate and don't escape the sandbox.
 """
 
 import re
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 
-# Banned patterns that indicate incomplete or invalid proofs
-# Banned patterns that indicate incomplete or invalid proofs (pre-compiled)
+# ── Banned patterns (errors — proof is invalid) ──
+
 BANNED_PATTERNS = [
-    re.compile(r"\bsorry\b"),
-    re.compile(r"\badmit\b"),
-    re.compile(r"\baxiom\b(?!\s+\w+\s*:)"),  # axiom declarations are ok, but axiom usage is not
+    (re.compile(r"\bsorry\b"), "Incomplete proof tactic 'sorry'"),
+    (re.compile(r"\badmit\b"), "Incomplete proof tactic 'admit'"),
+    (re.compile(r"\baxiom\b(?!\s+\w+\s*:)"), "Axiom usage (non-declaration)"),
+    (re.compile(r"\bnative_decide\b"), "Unsafe native_decide tactic"),
+    (re.compile(r"#eval\s+.*\bIO\b"), "#eval with IO side effects"),
 ]
 
-# Dangerous IO patterns that should be blocked
+# ── Dangerous IO patterns (errors — blocked) ──
 
-# Dangerous IO patterns that should be blocked (pre-compiled)
 DANGEROUS_IO_PATTERNS = [
-    re.compile(r"\bIO\.FS\b"),
-    re.compile(r"\bSystem\.Process\b"),
-    re.compile(r"\bIO\.Process\b"),
+    (re.compile(r"\bIO\.FS\b"), "File system access (IO.FS)"),
+    (re.compile(r"\bSystem\.Process\b"), "Process spawning (System.Process)"),
+    (re.compile(r"\bIO\.Process\b"), "Process spawning (IO.Process)"),
+    (re.compile(r"\bIO\.getStdin\b"), "Stdin access (IO.getStdin)"),
+    (re.compile(r"\bIO\.print\b"), "Print to stdout (IO.print)"),
+    (re.compile(r"\bSystem\.FilePath\b"), "File path manipulation (System.FilePath)"),
 ]
+
+# ── Suspicious imports (warnings) ──
+
+SUSPICIOUS_IMPORTS = [
+    (re.compile(r"import\s+System\b"), "Import of System module"),
+    (re.compile(r"import\s+IO\.FS\b"), "Import of IO.FS module"),
+    (re.compile(r"import\s+Lean\.Elab\.Command\b"), "Import of Lean.Elab.Command (metaprogramming)"),
+    (re.compile(r"import\s+Lean\.Elab\.Tactic\b"), "Import of Lean.Elab.Tactic (custom tactics)"),
+]
+
+
+@dataclass
+class SecurityReport:
+    """Detailed security analysis of a proof."""
+    banned_patterns: list[str] = field(default_factory=list)
+    io_violations: list[str] = field(default_factory=list)
+    suspicious_imports: list[str] = field(default_factory=list)
+
+    @property
+    def is_safe(self) -> bool:
+        return not self.banned_patterns and not self.io_violations
+
+    @property
+    def has_warnings(self) -> bool:
+        return bool(self.suspicious_imports)
 
 
 @dataclass
@@ -36,31 +65,24 @@ class ValidationResult:
     is_valid: bool
     errors: list[str]
     warnings: list[str]
-    
+    security: Optional[SecurityReport] = None
+
     def __bool__(self) -> bool:
         return self.is_valid
 
 
 def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) -> str:
-    """
-    Extract the theorem statement from Lean code.
-    
-    The theorem statement is everything up to and including the := or where
-    keyword, but not the proof body.
-    """
-    # Pattern to match theorem/lemma declarations up to :=
-    # Uses non-greedy matching to handle complex type annotations
+    """Extract the theorem statement from Lean code (up to :=)."""
     if theorem_name:
         pattern = rf'(?:theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?:='
     else:
         pattern = r'(?:theorem\s+\w+|lemma\s+\w+).*?:='
 
     match = re.search(pattern, content, re.DOTALL)
-
     if match:
         return match.group(0)
 
-    # Fallback: try to find any theorem/lemma line
+    # Fallback: line-by-line search
     lines = content.split('\n')
     theorem_lines = []
     in_theorem = False
@@ -68,7 +90,6 @@ def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) 
     for line in lines:
         if re.match(r'\s*(theorem|lemma)\s+\w+', line):
             in_theorem = True
-
         if in_theorem:
             theorem_lines.append(line)
             if ':=' in line or 'where' in line:
@@ -78,13 +99,8 @@ def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) 
 
 
 def compute_theorem_hash(content: str, theorem_name: Optional[str] = None) -> str:
-    """
-    Compute SHA-256 hash of the theorem statement.
-    
-    This is used to verify that the theorem statement hasn't been modified.
-    """
+    """Compute SHA-256 hash of the normalized theorem statement."""
     statement = extract_theorem_statement(content, theorem_name)
-    # Normalize whitespace for consistent hashing
     normalized = ' '.join(statement.split())
     return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
 
@@ -92,166 +108,129 @@ def compute_theorem_hash(content: str, theorem_name: Optional[str] = None) -> st
 def check_banned_patterns(content: str) -> list[str]:
     """Check for banned patterns in the proof."""
     errors = []
-    
-    for pattern in BANNED_PATTERNS:
-        matches = pattern.findall(content)
-        if matches:
-            errors.append(f"Found banned pattern: {matches[0]}")
-    
+    for pattern, description in BANNED_PATTERNS:
+        if pattern.search(content):
+            errors.append(f"Banned: {description}")
     return errors
 
 
 def check_dangerous_io(content: str) -> list[str]:
-    """Check for dangerous IO patterns in the code."""
-    warnings = []
-    
-    for pattern in DANGEROUS_IO_PATTERNS:
+    """Check for dangerous IO patterns (blocked)."""
+    errors = []
+    for pattern, description in DANGEROUS_IO_PATTERNS:
         if pattern.search(content):
-            warnings.append(f"Potentially dangerous IO pattern found: {pattern.pattern}")
-    
+            errors.append(f"Blocked: {description}")
+    return errors
+
+
+def check_suspicious_imports(content: str) -> list[str]:
+    """Check for suspicious imports (warnings only)."""
+    warnings = []
+    for pattern, description in SUSPICIOUS_IMPORTS:
+        if pattern.search(content):
+            warnings.append(f"Suspicious: {description}")
     return warnings
+
+
+def run_security_check(content: str) -> SecurityReport:
+    """Run comprehensive security analysis on proof content."""
+    return SecurityReport(
+        banned_patterns=check_banned_patterns(content),
+        io_violations=check_dangerous_io(content),
+        suspicious_imports=check_suspicious_imports(content),
+    )
 
 
 def validate_theorem_integrity(
     original_content: str,
     candidate_content: str,
-    theorem_name: Optional[str] = None
+    theorem_name: Optional[str] = None,
 ) -> ValidationResult:
-    """
-    Validate that the theorem statement hasn't been modified.
-    
-    Args:
-        original_content: The original Lean file content
-        candidate_content: The candidate proof content
-        theorem_name: Optional specific theorem name to validate
-    
-    Returns:
-        ValidationResult indicating if the proof is valid
-    """
+    """Validate that the theorem statement hasn't been modified."""
     errors = []
     warnings = []
-    
-    # Compute hashes
+
+    # Hash comparison
     original_hash = compute_theorem_hash(original_content, theorem_name)
     candidate_hash = compute_theorem_hash(candidate_content, theorem_name)
-    
+
     if original_hash != candidate_hash:
         errors.append(
             f"Theorem statement was modified! "
             f"Original hash: {original_hash[:16]}... "
             f"Candidate hash: {candidate_hash[:16]}..."
         )
-    
-    # Check for banned patterns
-    banned_errors = check_banned_patterns(candidate_content)
-    errors.extend(banned_errors)
-    
-    # Check for dangerous IO
-    io_warnings = check_dangerous_io(candidate_content)
-    warnings.extend(io_warnings)
-    
+
+    # Security analysis
+    security = run_security_check(candidate_content)
+    errors.extend(security.banned_patterns)
+    errors.extend(security.io_violations)
+    warnings.extend(security.suspicious_imports)
+
     return ValidationResult(
         is_valid=len(errors) == 0,
         errors=errors,
-        warnings=warnings
+        warnings=warnings,
+        security=security,
     )
 
 
 def validate_lean_file(file_path: Path) -> ValidationResult:
-    """
-    Perform basic validation on a Lean file.
-    
-    Args:
-        file_path: Path to the Lean file
-    
-    Returns:
-        ValidationResult indicating if the file is valid
-    """
+    """Perform validation on a Lean file."""
     errors = []
     warnings = []
-    
+
     if not file_path.exists():
         errors.append(f"File does not exist: {file_path}")
         return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
-    
+
     if file_path.suffix != '.lean':
         errors.append(f"Not a Lean file: {file_path}")
         return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
-    
+
     try:
         content = file_path.read_text(encoding='utf-8')
     except UnicodeDecodeError:
         errors.append(f"Could not read file as UTF-8: {file_path}")
         return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
-    
-    # Check for banned patterns
-    banned_errors = check_banned_patterns(content)
-    errors.extend(banned_errors)
-    
-    # Check for dangerous IO
-    io_warnings = check_dangerous_io(content)
-    warnings.extend(io_warnings)
-    
+
+    security = run_security_check(content)
+    errors.extend(security.banned_patterns)
+    errors.extend(security.io_violations)
+    warnings.extend(security.suspicious_imports)
+
     return ValidationResult(
         is_valid=len(errors) == 0,
         errors=errors,
-        warnings=warnings
+        warnings=warnings,
+        security=security,
     )
 
 
 class TheoremLocker:
-    """
-    Manages theorem statement integrity across proof attempts.
-    
-    This class maintains a cache of theorem hashes to quickly validate
-    that proof candidates haven't modified the original theorem statements.
-    """
-    
+    """Manages theorem statement integrity across proof attempts."""
+
     def __init__(self):
         self._hash_cache: dict[str, str] = {}
-    
+
     def lock_theorem(self, problem_id: str, content: str, theorem_name: Optional[str] = None) -> str:
-        """
-        Lock a theorem statement by computing and storing its hash.
-        
-        Args:
-            problem_id: Unique identifier for the problem
-            content: The original Lean file content
-            theorem_name: Optional specific theorem name
-        
-        Returns:
-            The computed hash
-        """
+        """Lock a theorem by computing and storing its hash."""
         cache_key = f"{problem_id}:{theorem_name or 'default'}"
         hash_value = compute_theorem_hash(content, theorem_name)
         self._hash_cache[cache_key] = hash_value
         return hash_value
-    
+
     def verify_theorem(
-        self,
-        problem_id: str,
-        candidate_content: str,
-        theorem_name: Optional[str] = None
+        self, problem_id: str, candidate_content: str,
+        theorem_name: Optional[str] = None,
     ) -> bool:
-        """
-        Verify that a candidate proof hasn't modified the theorem statement.
-        
-        Args:
-            problem_id: Unique identifier for the problem
-            candidate_content: The candidate proof content
-            theorem_name: Optional specific theorem name
-        
-        Returns:
-            True if the theorem statement is unchanged
-        """
+        """Verify a candidate proof hasn't modified the theorem statement."""
         cache_key = f"{problem_id}:{theorem_name or 'default'}"
-        
         if cache_key not in self._hash_cache:
             raise ValueError(f"Theorem not locked: {cache_key}")
-        
         candidate_hash = compute_theorem_hash(candidate_content, theorem_name)
         return self._hash_cache[cache_key] == candidate_hash
-    
+
     def get_hash(self, problem_id: str, theorem_name: Optional[str] = None) -> Optional[str]:
         """Get the stored hash for a theorem."""
         cache_key = f"{problem_id}:{theorem_name or 'default'}"

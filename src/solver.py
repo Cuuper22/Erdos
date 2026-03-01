@@ -18,6 +18,9 @@ from .config import Config
 from .validator import TheoremLocker, validate_theorem_integrity, ValidationResult
 from .sandbox import Sandbox, SandboxManager, run_lake_build, BuildResult
 
+import os
+import requests
+
 
 # Set up logging
 logging.basicConfig(
@@ -111,6 +114,70 @@ class MockLLMProvider(LLMProvider):
         if "sorry" in prompt.lower():
             return "-- Mock proof generated\nby simp", 100, 20
         return "-- No proof generated", 50, 10
+
+
+
+
+class GoogleProvider(LLMProvider):
+    """Google Generative AI (Gemini) provider."""
+    
+    def __init__(self, api_key=None, model="gemini-2.0-flash"):
+        """Initialize Google provider."""
+        self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("Google API key required. Set GOOGLE_API_KEY env variable.")
+        self.model = model
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+    
+    def generate(self, prompt, temperature=0.7, max_tokens=4096):
+        """Generate a response from Gemini."""
+        url = f"{self.base_url}/{self.model}:generateContent"
+        
+        headers = {"Content-Type": "application/json"}
+        
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            }
+        }
+        
+        try:
+            response = requests.post(
+                url,
+                params={"key": self.api_key},
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract response text
+            if "candidates" in data and len(data["candidates"]) > 0:
+                candidate = data["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    text = candidate["content"]["parts"][0].get("text", "")
+                else:
+                    text = ""
+            else:
+                text = ""
+            
+            # Extract token usage
+            usage = data.get("usageMetadata", {})
+            input_tokens = usage.get("promptTokenCount", 0)
+            output_tokens = usage.get("candidatesTokenCount", 0)
+            
+            return text, input_tokens, output_tokens
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Google API request failed: {e}")
+            raise RuntimeError(f"Google API error: {e}")
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to parse Google API response: {e}")
+            raise RuntimeError(f"Google API response parsing error: {e}")
 
 
 class AgentProver:
@@ -543,8 +610,19 @@ def main():
     # Ensure directories exist
     config.solver.ensure_directories()
     
-    # Create LLM provider (mock for now)
-    llm = MockLLMProvider()
+    # Create LLM provider
+    # Use GoogleProvider if GOOGLE_API_KEY is set, otherwise use mock
+    if os.environ.get("GOOGLE_API_KEY"):
+        try:
+            llm = GoogleProvider(model=config.llm.model)
+            logger.info(f"Using Google Gemini provider with model: {config.llm.model}")
+        except ValueError as e:
+            logger.warning(f"Failed to initialize Google provider: {e}")
+            logger.warning("Falling back to MockLLMProvider")
+            llm = MockLLMProvider()
+    else:
+        logger.info("No GOOGLE_API_KEY found, using MockLLMProvider")
+        llm = MockLLMProvider()
     
     # Create solver
     solver = Solver(config, llm)

@@ -30,10 +30,10 @@ pip install -r requirements.txt
 python -m src.environment --install    # sets up Lean toolchain
 ```
 
-Set an API key:
+Set an API key (Google Gemini recommended):
 ```bash
-export OPENAI_API_KEY="..."
-# or ANTHROPIC_API_KEY, or OLLAMA_URL for local models
+export GOOGLE_API_KEY="your-api-key-here"
+# Alternatively: OPENAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_URL for local models
 ```
 
 Run the solver:
@@ -41,6 +41,29 @@ Run the solver:
 python -m src.solver --manifest manifest.json
 python -m src.solver --manifest manifest.json --problem-id Erdos1024   # specific problem
 ```
+
+For testing without an API key:
+```bash
+export ERDOS_MOCK_MODE=1
+python -m src.solver --manifest manifest.json
+```
+
+## Supported LLM Providers
+
+- **Google Gemini** (Recommended, implemented) - Fast, accurate, cost-effective
+  - Default model: `gemini-2.0-flash`
+  - Set `GOOGLE_API_KEY` environment variable
+  - Get API key from: https://ai.google.dev/
+  
+- **Mock Provider** (For testing only)
+  - No API key required
+  - Set `ERDOS_MOCK_MODE=1`
+  - Returns dummy proofs for testing the pipeline
+
+- **Planned** (Not yet implemented):
+  - OpenAI GPT-4
+  - Anthropic Claude
+  - Local models via Ollama
 
 ## Configuration
 

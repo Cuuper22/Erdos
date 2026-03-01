@@ -13,17 +13,20 @@ from typing import Optional
 
 
 # Banned patterns that indicate incomplete or invalid proofs
+# Banned patterns that indicate incomplete or invalid proofs (pre-compiled)
 BANNED_PATTERNS = [
-    r'\bsorry\b',
-    r'\badmit\b',
-    r'\baxiom\b(?!\s+\w+\s*:)',  # axiom declarations are ok, but axiom usage is not
+    re.compile(r"\bsorry\b"),
+    re.compile(r"\badmit\b"),
+    re.compile(r"\baxiom\b(?!\s+\w+\s*:)"),  # axiom declarations are ok, but axiom usage is not
 ]
 
 # Dangerous IO patterns that should be blocked
+
+# Dangerous IO patterns that should be blocked (pre-compiled)
 DANGEROUS_IO_PATTERNS = [
-    r'\bIO\.FS\b',
-    r'\bSystem\.Process\b',
-    r'\bIO\.Process\b',
+    re.compile(r"\bIO\.FS\b"),
+    re.compile(r"\bSystem\.Process\b"),
+    re.compile(r"\bIO\.Process\b"),
 ]
 
 
@@ -91,7 +94,7 @@ def check_banned_patterns(content: str) -> list[str]:
     errors = []
     
     for pattern in BANNED_PATTERNS:
-        matches = re.findall(pattern, content, re.IGNORECASE)
+        matches = pattern.findall(content)
         if matches:
             errors.append(f"Found banned pattern: {matches[0]}")
     
@@ -103,8 +106,8 @@ def check_dangerous_io(content: str) -> list[str]:
     warnings = []
     
     for pattern in DANGEROUS_IO_PATTERNS:
-        if re.search(pattern, content):
-            warnings.append(f"Potentially dangerous IO pattern found: {pattern}")
+        if pattern.search(content):
+            warnings.append(f"Potentially dangerous IO pattern found: {pattern.pattern}")
     
     return warnings
 

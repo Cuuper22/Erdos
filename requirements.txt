@@ -1,8 +1,7 @@
 # Core dependencies
-# No external dependencies for Phase 1 MVP
-# LLM integrations will be added in later phases
+requests>=2.31.0
 
-# Future dependencies (commented out for Phase 1):
+# Future dependencies (for additional providers):
 # openai>=1.0.0
 # anthropic>=0.7.0
 # litellm>=1.0.0

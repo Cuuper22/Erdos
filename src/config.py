@@ -15,16 +15,16 @@ from pathlib import Path
 @dataclass
 class LLMConfig:
     """Configuration for LLM providers."""
-    provider: str = "openai"  # "openai", "anthropic", or "ollama"
+    provider: str = "google"  # "openai", "anthropic", "google", or "ollama"
     api_key: Optional[str] = None
-    model: str = "gpt-4"
+    model: str = "gemini-2.0-flash"
     temperature_prover: float = 0.7
     temperature_critic: float = 0.1
     ollama_url: str = "http://localhost:11434"
     
     def validate(self) -> bool:
         """Validate the LLM configuration."""
-        if self.provider in ["openai", "anthropic"]:
+        if self.provider in ["openai", "anthropic", "google"]:
             if not self.api_key:
                 raise ValueError(f"API key required for {self.provider}")
         return True
@@ -84,7 +84,11 @@ class Config:
         config = cls()
         
         # LLM configuration
-        if os.environ.get("OPENAI_API_KEY"):
+        if os.environ.get("GOOGLE_API_KEY"):
+            config.llm.provider = "google"
+            config.llm.api_key = os.environ["GOOGLE_API_KEY"]
+            config.llm.model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+        elif os.environ.get("OPENAI_API_KEY"):
             config.llm.provider = "openai"
             config.llm.api_key = os.environ["OPENAI_API_KEY"]
         elif os.environ.get("ANTHROPIC_API_KEY"):
@@ -111,6 +115,15 @@ class Config:
         # Manifest URL
         if os.environ.get("MANIFEST_URL"):
             config.manifest_url = os.environ["MANIFEST_URL"]
+        
+        # Early validation - check if API key is set when not using mock
+        if config.llm.provider in ["openai", "anthropic", "google"] and not config.llm.api_key:
+            # Check if we're in testing/mock mode
+            if not os.environ.get("ERDOS_MOCK_MODE"):
+                raise ValueError(
+                    f"API key required for {config.llm.provider} provider. "
+                    f"Set {config.llm.provider.upper()}_API_KEY environment variable or ERDOS_MOCK_MODE=1 for testing."
+                )
         
         return config
     

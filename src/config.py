@@ -17,7 +17,7 @@ class LLMConfig:
     """Configuration for LLM providers."""
     provider: str = "google"  # "openai", "anthropic", "google", or "ollama"
     api_key: Optional[str] = None
-    model: str = "gemini-2.0-flash"
+    model: str = "gemini-3-flash"
     temperature_prover: float = 0.7
     temperature_critic: float = 0.1
     ollama_url: str = "http://localhost:11434"
@@ -87,7 +87,7 @@ class Config:
         if os.environ.get("GOOGLE_API_KEY"):
             config.llm.provider = "google"
             config.llm.api_key = os.environ["GOOGLE_API_KEY"]
-            config.llm.model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+            config.llm.model = os.environ.get("LLM_MODEL", "gemini-3-flash")
         elif os.environ.get("OPENAI_API_KEY"):
             config.llm.provider = "openai"
             config.llm.api_key = os.environ["OPENAI_API_KEY"]

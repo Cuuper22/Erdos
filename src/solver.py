@@ -566,11 +566,34 @@ def main():
     parser.add_argument("--manifest", type=Path, default=Path("manifest.json"), help="Path to problem manifest")
     parser.add_argument("--problem-id", type=str, help="Solve a specific problem by ID")
     parser.add_argument("--json-logs", action="store_true", help="Output JSON Lines for GUI consumption")
+    parser.add_argument("--list-solutions", action="store_true", help="List all packaged solutions")
+    parser.add_argument("--view", type=str, metavar="PROBLEM_ID", help="View details of a solution")
 
     args = parser.parse_args()
 
     # Configure logging
     setup_logging(json_mode=args.json_logs)
+
+    # Handle solution queries (no LLM needed)
+    if args.list_solutions or args.view:
+        from .packager import list_solutions, get_solution
+        if args.list_solutions:
+            solutions = list_solutions()
+            if not solutions:
+                print("No solutions found.")
+                return
+            for s in solutions:
+                elegant = " [elegant]" if s.get("is_elegant") else ""
+                print(f"  {s['problem_id']:20s}  {s.get('timestamp', '?'):25s}  "
+                      f"{s.get('attempts', '?')} attempts  ${s.get('cost_usd', 0):.4f}{elegant}")
+            return
+        if args.view:
+            solution = get_solution(args.view)
+            if not solution:
+                print(f"No solution found for: {args.view}")
+                return
+            print(json.dumps(solution, indent=2, default=str))
+            return
 
     # Load configuration
     if args.config and args.config.exists():
@@ -615,6 +638,18 @@ def main():
                 with open(output_path, 'w') as f:
                     json.dump(result.to_dict(), f, indent=2)
                 logger.info(f"Solution saved to: {output_path}")
+
+                # Package into ZIP bundle
+                try:
+                    from .packager import package_artifact
+                    zip_path = package_artifact(
+                        result,
+                        model_name=config.llm.model,
+                        cost_usd=config.cost.current_spent,
+                    )
+                    logger.info(f"Solution packaged: {zip_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to package solution: {e}")
             else:
                 failed += 1
 

@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import re
+import time
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,15 +20,34 @@ from datetime import datetime
 from .config import Config
 from .validator import TheoremLocker, validate_theorem_integrity, ValidationResult
 from .sandbox import Sandbox, SandboxManager, run_lake_build, BuildResult
-from .llm import LLMProvider, MockLLMProvider, GeminiProvider, create_provider
-
-
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+from .llm import LLMProvider, MockLLMProvider, GeminiProvider, GeminiAPIError, create_provider
+from .logging_config import setup_logging
+from .events import (
+    emit_event, ProblemStarted, CostUpdate, AttemptResult,
+    SolutionFound, ProblemFailed, MiningComplete,
 )
+
 logger = logging.getLogger(__name__)
+
+
+# Error classification
+class _ErrorKind:
+    TRANSIENT = "transient"  # Retry with backoff
+    PERMANENT = "permanent"  # Stop immediately
+    BUDGET = "budget"        # Budget exhausted
+
+
+def _classify_error(error: Exception) -> str:
+    """Classify an error as transient, permanent, or budget."""
+    err_str = str(error).lower()
+    if any(kw in err_str for kw in ["rate limit", "429", "503", "500", "overloaded", "unavailable", "timeout"]):
+        return _ErrorKind.TRANSIENT
+    if any(kw in err_str for kw in ["401", "403", "invalid", "authentication", "unauthorized"]):
+        return _ErrorKind.PERMANENT
+    if "budget" in err_str:
+        return _ErrorKind.BUDGET
+    # Default: treat as transient (allow retry)
+    return _ErrorKind.TRANSIENT
 
 
 @dataclass
@@ -362,15 +383,26 @@ class Solver:
             ProofArtifact if successful, None otherwise
         """
         last_error: Optional[str] = None
-        
-        for attempt in range(self.config.solver.max_retries):
-            logger.info(f"Attempt {attempt + 1}/{self.config.solver.max_retries}")
-            
+        max_retries = self.config.solver.max_retries
+
+        emit_event(ProblemStarted(
+            problem_id=problem.id,
+            difficulty=problem.difficulty,
+            max_retries=max_retries,
+        ))
+
+        for attempt in range(max_retries):
+            logger.info(f"Attempt {attempt + 1}/{max_retries}")
+
             # Check budget before each attempt
             if not self.config.cost.check_budget():
                 logger.warning(f"Budget exhausted after {attempt} attempts")
+                emit_event(ProblemFailed(
+                    problem_id=problem.id, attempts=attempt,
+                    last_error="Budget exhausted",
+                ))
                 break
-            
+
             # A. GENERATE proof candidate
             try:
                 candidate, in_tokens, out_tokens = self.prover.generate(
@@ -378,22 +410,45 @@ class Solver:
                     instructions=problem.maintainer_note,
                     error_log=last_error
                 )
-                self.config.cost.add_usage(in_tokens, out_tokens)
+                cost = self.config.cost.add_usage(in_tokens, out_tokens)
+                emit_event(CostUpdate(
+                    cost_usd=cost,
+                    total_spent_usd=self.config.cost.current_spent,
+                    remaining_usd=self.config.cost.remaining_budget(),
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
+                ))
             except Exception as e:
-                logger.error(f"Prover generation failed: {e}")
+                kind = _classify_error(e)
+                logger.error(f"Prover generation failed ({kind}): {e}")
                 last_error = str(e)
+                emit_event(AttemptResult(
+                    problem_id=problem.id, attempt=attempt + 1,
+                    status="generation_error", message=str(e),
+                ))
+                if kind == _ErrorKind.PERMANENT:
+                    logger.error("Permanent error — stopping retries")
+                    break
+                if kind == _ErrorKind.TRANSIENT and attempt < max_retries - 1:
+                    delay = min(1.0 * (2 ** attempt) + random.uniform(0, 1), 30.0)
+                    logger.info(f"Backing off {delay:.1f}s before retry")
+                    time.sleep(delay)
                 continue
-            
+
             # B. INTEGRITY CHECK
             validation = validate_theorem_integrity(original_content, candidate)
             if not validation.is_valid:
                 last_error = f"SYSTEM: {'; '.join(validation.errors)}"
                 logger.warning(f"Integrity check failed: {last_error}")
+                emit_event(AttemptResult(
+                    problem_id=problem.id, attempt=attempt + 1,
+                    status="integrity_fail", message=last_error,
+                ))
                 continue
-            
+
             # Write candidate to sandbox
             sandbox.write_file(problem.path, candidate)
-            
+
             # C. COMPILATION CHECK
             if sandbox.work_dir:
                 build_result = run_lake_build(
@@ -402,34 +457,53 @@ class Solver:
                 )
             else:
                 build_result = BuildResult(
-                    success=False,
-                    stdout="",
+                    success=False, stdout="",
                     stderr="Sandbox not initialized",
-                    return_code=-1,
-                    duration_seconds=0
+                    return_code=-1, duration_seconds=0,
                 )
-            
+
             if not build_result.success:
                 last_error = f"COMPILER: {build_result.get_error_summary()}"
                 logger.info(f"Build failed: {last_error[:200]}")
+                emit_event(AttemptResult(
+                    problem_id=problem.id, attempt=attempt + 1,
+                    status="build_fail", message=last_error[:200],
+                ))
                 continue
-            
+
             logger.info("Build successful, running critic review")
-            
+
             # D. CRITIC CHECK
             try:
                 critique, in_tokens, out_tokens = self.critic.review(
                     candidate,
                     build_result.stdout + build_result.stderr
                 )
-                self.config.cost.add_usage(in_tokens, out_tokens)
+                cost = self.config.cost.add_usage(in_tokens, out_tokens)
+                emit_event(CostUpdate(
+                    cost_usd=cost,
+                    total_spent_usd=self.config.cost.current_spent,
+                    remaining_usd=self.config.cost.remaining_budget(),
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
+                ))
             except Exception as e:
                 logger.error(f"Critic review failed: {e}")
                 last_error = str(e)
+                emit_event(AttemptResult(
+                    problem_id=problem.id, attempt=attempt + 1,
+                    status="critic_error", message=str(e),
+                ))
                 continue
-            
+
             if critique.status == "PASS":
-                logger.info(f"Success! Proof found after {attempt + 1} attempts")
+                logger.info(f"Proof found after {attempt + 1} attempts")
+                emit_event(SolutionFound(
+                    problem_id=problem.id,
+                    attempts=attempt + 1,
+                    proof_preview=candidate[:200],
+                    is_elegant=critique.is_elegant,
+                ))
                 return ProofArtifact(
                     problem_id=problem.id,
                     proof_content=candidate,
@@ -440,8 +514,17 @@ class Solver:
             else:
                 last_error = f"CRITIC: {critique.feedback}"
                 logger.info(f"Critic rejected proof: {critique.feedback[:200]}")
-        
-        logger.warning(f"Failed to solve problem after {self.config.solver.max_retries} attempts")
+                emit_event(AttemptResult(
+                    problem_id=problem.id, attempt=attempt + 1,
+                    status="critic_fail", message=critique.feedback[:200],
+                ))
+
+        logger.warning(f"Failed to solve after {max_retries} attempts")
+        emit_event(ProblemFailed(
+            problem_id=problem.id,
+            attempts=max_retries,
+            last_error=last_error or "Max retries exhausted",
+        ))
         return None
     
     def cleanup(self) -> None:
@@ -477,82 +560,80 @@ def load_manifest(manifest_path: Path) -> list[Problem]:
 def main():
     """Main entry point for the solver."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Erdos Proof Mining System")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        help="Path to configuration file"
-    )
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=Path("manifest.json"),
-        help="Path to problem manifest"
-    )
-    parser.add_argument(
-        "--problem-id",
-        type=str,
-        help="Solve a specific problem by ID"
-    )
-    
+    parser.add_argument("--config", type=Path, help="Path to configuration file")
+    parser.add_argument("--manifest", type=Path, default=Path("manifest.json"), help="Path to problem manifest")
+    parser.add_argument("--problem-id", type=str, help="Solve a specific problem by ID")
+    parser.add_argument("--json-logs", action="store_true", help="Output JSON Lines for GUI consumption")
+
     args = parser.parse_args()
-    
+
+    # Configure logging
+    setup_logging(json_mode=args.json_logs)
+
     # Load configuration
     if args.config and args.config.exists():
         config = Config.from_file(args.config)
     else:
         config = Config.from_env()
-    
-    # Ensure directories exist
+
     config.solver.ensure_directories()
-    
-    # Create LLM provider via factory (auto-detects from config/env)
+
+    # Create LLM provider
     try:
         llm = create_provider(config)
         logger.info(f"Using provider: {llm!r}")
     except Exception as e:
         logger.error(f"Failed to initialize LLM provider: {e}")
-        logger.info("Falling back to MockLLMProvider")
         llm = MockLLMProvider()
-    
-    # Create solver
+
     solver = Solver(config, llm)
-    
+    start_time = time.time()
+    solved = 0
+    failed = 0
+
     try:
-        # Load problems
         if args.manifest.exists():
             problems = load_manifest(args.manifest)
         else:
             logger.error(f"Manifest not found: {args.manifest}")
             return
-        
-        # Filter by problem ID if specified
+
         if args.problem_id:
             problems = [p for p in problems if p.id == args.problem_id]
             if not problems:
                 logger.error(f"Problem not found: {args.problem_id}")
                 return
-        
-        # Process problems
+
         for problem in problems:
             result = solver.process_problem(problem)
-            
+
             if result:
-                # Save the artifact
+                solved += 1
                 output_path = config.solver.work_dir / f"solution_{problem.id}.json"
                 with open(output_path, 'w') as f:
                     json.dump(result.to_dict(), f, indent=2)
                 logger.info(f"Solution saved to: {output_path}")
-            
-            # Check remaining budget
+            else:
+                failed += 1
+
             remaining = config.cost.remaining_budget()
             logger.info(f"Remaining budget: ${remaining:.2f}")
-            
+
             if remaining <= 0:
                 logger.warning("Budget exhausted, stopping")
                 break
-    
+
+        # Emit mining complete summary
+        emit_event(MiningComplete(
+            total_problems=len(problems),
+            solved=solved,
+            failed=failed,
+            total_cost_usd=config.cost.current_spent,
+            duration_seconds=time.time() - start_time,
+        ))
+
     finally:
         solver.cleanup()
 

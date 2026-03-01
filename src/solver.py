@@ -18,10 +18,7 @@ from datetime import datetime
 from .config import Config
 from .validator import TheoremLocker, validate_theorem_integrity, ValidationResult
 from .sandbox import Sandbox, SandboxManager, run_lake_build, BuildResult
-from .llm import LLMProvider, MockLLMProvider, GeminiProvider
-
-# Keep GoogleProvider as alias for backward compatibility
-GoogleProvider = GeminiProvider
+from .llm import LLMProvider, MockLLMProvider, GeminiProvider, create_provider
 
 
 # Set up logging
@@ -510,34 +507,12 @@ def main():
     # Ensure directories exist
     config.solver.ensure_directories()
     
-    # Create LLM provider
-    # Use GoogleProvider if GOOGLE_API_KEY or GEMINI_API_KEY is set
-    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-
-    if api_key:
-        try:
-            llm = GoogleProvider(model=config.llm.model)
-            logger.info(f"Using Google Gemini provider with model: {config.llm.model}")
-        except ValueError as e:
-            logger.error(f"Failed to initialize Google Gemini provider: {e}")
-            logger.info("Please ensure your API key is valid and you have access to the Gemini API")
-            logger.info("Get a free API key at: https://ai.google.dev/")
-            logger.warning("Falling back to MockLLMProvider for testing")
-            llm = MockLLMProvider()
-    elif os.environ.get("ERDOS_MOCK_MODE"):
-        logger.info("ERDOS_MOCK_MODE is enabled, using MockLLMProvider")
-        llm = MockLLMProvider()
-    else:
-        logger.warning("=" * 70)
-        logger.warning("No API key found!")
-        logger.warning("")
-        logger.warning("To use Erdos with AI models, set one of these environment variables:")
-        logger.warning("  - GOOGLE_API_KEY or GEMINI_API_KEY (recommended)")
-        logger.warning("")
-        logger.warning("Get a free Gemini API key at: https://ai.google.dev/")
-        logger.warning("")
-        logger.warning("For testing without an API key, set: ERDOS_MOCK_MODE=1")
-        logger.warning("=" * 70)
+    # Create LLM provider via factory (auto-detects from config/env)
+    try:
+        llm = create_provider(config)
+        logger.info(f"Using provider: {llm!r}")
+    except Exception as e:
+        logger.error(f"Failed to initialize LLM provider: {e}")
         logger.info("Falling back to MockLLMProvider")
         llm = MockLLMProvider()
     

@@ -2,6 +2,8 @@
 
 import sys
 import os
+import json
+import urllib.error
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -379,3 +381,103 @@ class TestAnthropicProvider:
         """Test string representation."""
         provider, _ = self._make_provider()
         assert repr(provider) == f"AnthropicProvider(model={AnthropicProvider.DEFAULT_MODEL})"
+
+
+class TestOllamaProvider:
+    """Tests for OllamaProvider."""
+
+    def test_ollama_init(self):
+        """Test Ollama provider initialization."""
+        from src.llm.ollama_provider import OllamaProvider
+        provider = OllamaProvider(model="codellama", base_url="http://localhost:11434")
+        assert provider.model_name == "codellama"
+        assert provider.base_url == "http://localhost:11434"
+
+    def test_ollama_generate_mock_response(self):
+        """Test Ollama generate with mocked HTTP."""
+        from src.llm.ollama_provider import OllamaProvider
+        provider = OllamaProvider()
+
+        mock_data = json.dumps({
+            "response": "proof by induction",
+            "prompt_eval_count": 25,
+            "eval_count": 40,
+        }).encode("utf-8")
+
+        mock_resp = Mock()
+        mock_resp.read.return_value = mock_data
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = Mock(return_value=False)
+
+        with patch('urllib.request.urlopen', return_value=mock_resp):
+            response, in_tokens, out_tokens = provider.generate("test")
+
+        assert response == "proof by induction"
+        assert in_tokens == 25
+        assert out_tokens == 40
+
+    def test_ollama_connection_error(self):
+        """Test Ollama raises on connection failure."""
+        from src.llm.ollama_provider import OllamaProvider, OllamaAPIError
+        provider = OllamaProvider(base_url="http://localhost:99999")
+
+        with patch('urllib.request.urlopen', side_effect=urllib.error.URLError("Connection refused")):
+            with pytest.raises(OllamaAPIError, match="Cannot connect"):
+                provider.generate("test")
+
+    def test_ollama_repr(self):
+        """Test string representation."""
+        from src.llm.ollama_provider import OllamaProvider
+        provider = OllamaProvider(model="llama3.2", base_url="http://localhost:11434")
+        assert "OllamaProvider" in repr(provider)
+        assert "llama3.2" in repr(provider)
+
+
+class TestProviderFactory:
+    """Tests for create_provider factory."""
+
+    _SYSTEM_KEYS = {"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
+
+    def _clean_env(self):
+        """Clear env but preserve system-critical keys."""
+        saved = {k: os.environ[k] for k in self._SYSTEM_KEYS if k in os.environ}
+        os.environ.clear()
+        os.environ.update(saved)
+
+    def test_factory_returns_mock_in_mock_mode(self):
+        """Test factory returns MockLLMProvider when ERDOS_MOCK_MODE is set."""
+        from src.llm.factory import create_provider
+        self._clean_env()
+        os.environ["ERDOS_MOCK_MODE"] = "1"
+        provider = create_provider()
+        assert isinstance(provider, MockLLMProvider)
+
+    def test_factory_auto_detects_gemini(self):
+        """Test factory auto-detects GEMINI_API_KEY."""
+        from src.llm.factory import create_provider
+        self._clean_env()
+        os.environ["GEMINI_API_KEY"] = "test-key"
+        with patch('google.generativeai.configure'):
+            with patch('google.generativeai.GenerativeModel'):
+                provider = create_provider()
+        assert isinstance(provider, GeminiProvider)
+
+    def test_factory_from_config(self):
+        """Test factory creates provider from explicit config."""
+        from src.llm.factory import create_provider
+        from src.config import Config
+        config = Config()
+        config.llm.provider = "google"
+        config.llm.api_key = "test-key"
+        config.llm.model = "gemini-3-flash"
+        with patch('google.generativeai.configure'):
+            with patch('google.generativeai.GenerativeModel'):
+                provider = create_provider(config)
+        assert isinstance(provider, GeminiProvider)
+
+    def test_factory_fallback_to_mock(self):
+        """Test factory falls back to MockLLMProvider when no provider available."""
+        from src.llm.factory import create_provider
+        self._clean_env()
+        provider = create_provider()
+        assert isinstance(provider, MockLLMProvider)

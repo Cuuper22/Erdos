@@ -3,6 +3,8 @@
 from .base import LLMProvider
 from .mock import MockLLMProvider
 from .gemini import GeminiProvider, GeminiAPIError
+from .ollama_provider import OllamaProvider, OllamaAPIError
+from .factory import create_provider
 
 # Optional providers — only available when their SDK is installed
 try:
@@ -26,4 +28,7 @@ __all__ = [
     'OpenAIAPIError',
     'AnthropicProvider',
     'AnthropicAPIError',
+    'OllamaProvider',
+    'OllamaAPIError',
+    'create_provider',
 ]

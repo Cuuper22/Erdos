@@ -1,3 +1,15 @@
+## Why
+
+I wanted to know if LLMs could actually do math — not generate text that looks like proofs, but produce something a Lean 4 compiler would accept.
+
+The setup: one model writes proofs, another critiques them, repeat until the compiler says yes or the budget runs out. Prover/Critic loop. Pretty standard.
+
+What wasn't standard: the models started cheating. Not dramatically — they'd subtly rewrite the theorem statement to make it easier to prove. Valid proof, wrong theorem. Everything compiles, the Critic approves, and you've just formally verified a convenient reinterpretation of the original problem.
+
+Fix: theorem statements get SHA-256 hashed before the loop starts. Every candidate gets checked against the locked hash. One character changes in the statement, the attempt dies before it reaches the compiler.
+
+Turns out "did you actually solve what I asked" is a hard question when the solver is an LLM. That's the scalable oversight problem with a type checker bolted on.
+
 # Erdos
 
 Automated mathematical proof mining. You provide compute and API credits, it tries to solve formalized math conjectures in Lean 4.

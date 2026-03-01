@@ -6,6 +6,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{Manager, State, Window};
+use log::{info, warn, error};
+use chrono;
 
 // Global state for mining control
 struct MiningState {
@@ -42,7 +44,9 @@ fn emit_log(window: &Window, level: &str, message: &str) {
         level: level.to_string(),
         message: message.to_string(),
     };
-    let _ = window.emit("log-event", event);
+    if let Err(e) = window.emit("log-event", event) {
+        error!("Failed to emit log event: {}", e);
+    }
 }
 
 #[tauri::command]
@@ -196,6 +200,13 @@ fn stop_mining(state: State<'_, Arc<MiningState>>) -> Result<(), String> {
 }
 
 fn main() {
+    // Initialize logging
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    info!("Starting Erdos Prover application");
+
     tauri::Builder::default()
         .manage(Arc::new(MiningState {
             is_running: AtomicBool::new(false),

@@ -23,6 +23,13 @@ Download from releases:
 
 ### Command Line
 
+**Prerequisites:**
+- Python 3.11 or higher
+- Git
+- (Optional) Rust and Cargo for building the GUI
+
+**Installation:**
+
 ```bash
 git clone https://github.com/Cuuper22/Erdos.git
 cd Erdos
@@ -134,14 +141,43 @@ Erdos/
 └── .github/workflows/      # CI/CD
 ```
 
-## Development
+## Building from Source
+
+### Desktop GUI
 
 ```bash
 cd gui
 npm install
-npm run tauri dev      # dev mode
-npm run tauri build    # release build
+npm run tauri dev      # development mode with hot reload
+npm run tauri build    # production build
 ```
+
+The built application will be in `gui/src-tauri/target/release/`.
+
+### Running Tests
+
+```bash
+# Python tests
+python -m pytest tests/
+
+# Or with unittest
+python -m unittest discover tests/
+```
+
+## Development
+
+**Project Structure:**
+- `src/` - Python backend (solver, validator, sandbox manager)
+- `gui/` - Tauri desktop application (Rust + React)
+- `tests/` - Test suite
+- `examples/` - Example problem sets
+
+**Contributing:**
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new features
+4. Run the test suite
+5. Submit a pull request
 
 See [Plan.md](Plan.md) for the full roadmap.
 

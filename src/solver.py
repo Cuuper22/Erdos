@@ -7,6 +7,7 @@ generate and validate Lean 4 proofs using LLM assistance.
 
 import json
 import logging
+import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -510,17 +511,34 @@ def main():
     config.solver.ensure_directories()
     
     # Create LLM provider
-    # Use GoogleProvider if GOOGLE_API_KEY is set, otherwise use mock
-    if os.environ.get("GOOGLE_API_KEY"):
+    # Use GoogleProvider if GOOGLE_API_KEY or GEMINI_API_KEY is set
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+
+    if api_key:
         try:
             llm = GoogleProvider(model=config.llm.model)
             logger.info(f"Using Google Gemini provider with model: {config.llm.model}")
         except ValueError as e:
-            logger.warning(f"Failed to initialize Google provider: {e}")
-            logger.warning("Falling back to MockLLMProvider")
+            logger.error(f"Failed to initialize Google Gemini provider: {e}")
+            logger.info("Please ensure your API key is valid and you have access to the Gemini API")
+            logger.info("Get a free API key at: https://ai.google.dev/")
+            logger.warning("Falling back to MockLLMProvider for testing")
             llm = MockLLMProvider()
+    elif os.environ.get("ERDOS_MOCK_MODE"):
+        logger.info("ERDOS_MOCK_MODE is enabled, using MockLLMProvider")
+        llm = MockLLMProvider()
     else:
-        logger.info("No GOOGLE_API_KEY found, using MockLLMProvider")
+        logger.warning("=" * 70)
+        logger.warning("No API key found!")
+        logger.warning("")
+        logger.warning("To use Erdos with AI models, set one of these environment variables:")
+        logger.warning("  - GOOGLE_API_KEY or GEMINI_API_KEY (recommended)")
+        logger.warning("")
+        logger.warning("Get a free Gemini API key at: https://ai.google.dev/")
+        logger.warning("")
+        logger.warning("For testing without an API key, set: ERDOS_MOCK_MODE=1")
+        logger.warning("=" * 70)
+        logger.info("Falling back to MockLLMProvider")
         llm = MockLLMProvider()
     
     # Create solver

@@ -1,0 +1,22 @@
+{
+  "priority_problems": [
+    {
+      "id": "basic_001",
+      "path": "test_theorem.lean",
+      "difficulty": "Easy",
+      "maintainer_note": "This is a trivial theorem, should solve immediately with rfl"
+    },
+    {
+      "id": "algebra_001",
+      "path": "basic_algebra.lean",
+      "difficulty": "Easy",
+      "maintainer_note": "Basic Nat algebraic identities. Try omega or simp tactics."
+    },
+    {
+      "id": "numtheory_001",
+      "path": "number_theory.lean",
+      "difficulty": "Medium",
+      "maintainer_note": "Elementary number theory. May need omega, cases, or induction."
+    }
+  ]
+}

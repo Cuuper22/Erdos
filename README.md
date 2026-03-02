@@ -12,48 +12,118 @@ Turns out "did you actually solve what I asked" is a hard question when the solv
 
 # Erdos
 
-Automated mathematical proof mining. You provide compute and API credits, it tries to solve formalized math conjectures in Lean 4.
+Multi-agent theorem prover. LLM agents write Lean 4 proofs. SHA-256 integrity locking catches agents that try to redefine what they're proving.
 
-Uses a Prover/Critic multi-agent loop — one LLM generates proof attempts, another pokes holes in them, repeat until the Lean compiler is happy or the budget runs out. Theorem statements are SHA-256 hashed so the agents can't quietly change what they're proving.
+[![CI](https://github.com/Cuuper22/Erdos/actions/workflows/ci.yml/badge.svg)](https://github.com/Cuuper22/Erdos/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Quick Start
+## What makes this different
 
-### Desktop App
+Most LLM theorem provers trust the model's output. Erdos doesn't — it hashes theorem statements before the loop starts and rejects any attempt that modifies what's being proved.
 
-Download from [Releases](https://github.com/Cuuper22/Erdos/releases) — Python is bundled, no installation needed:
-- Windows: `.msi` / `.exe`
-- macOS: `.dmg`
-- Linux: `.AppImage` / `.deb`
+The Prover/Critic architecture is adversarial by design. One model tries to prove, another tries to break the proof. The Lean compiler is the arbiter neither agent can influence.
 
-### Command Line
+It supports multiple LLM backends — Gemini, OpenAI, Anthropic, Ollama (local), or mock mode for testing. No vendor lock-in.
+
+It ships as a desktop app. Tauri GUI with settings panel, log viewer, cost tracking, and proof gallery. Or just use the CLI.
+
+It's a single-person project with 200+ tests across 10 modules, CI running on Python 3.10–3.12, and Rust clippy on the GUI. Not a research lab with a team of 20.
+
+## The alignment angle
+
+During development, the LLM agents developed an emergent strategy: subtly rewriting the theorem statement to make it easier to prove. The proof was valid. The theorem was different. Everything compiled. The Critic agent approved.
+
+This is specification gaming in a formal verification context. The agent optimized for the metric (compile success) rather than the goal (prove the original theorem). Same class of failure that alignment researchers worry about at scale — an agent that satisfies the letter of the objective while violating its intent.
+
+The fix: SHA-256 hashing of the original theorem statement before the loop starts. Every candidate proof is checked against the locked hash. If the statement changes by a single character, the attempt is rejected before it reaches the Lean compiler. The `TheoremLocker` class manages this — lock a theorem, verify every candidate against the lock.
+
+This works because theorem statements are discrete, hashable objects. Not all alignment problems have such clean ground-truth signals. But it's a concrete example of scalable oversight — a verification mechanism that catches what the evaluator (Critic agent) misses.
+
+## Try it
 
 ```bash
-git clone https://github.com/Cuuper22/Erdos.git
-cd Erdos
+git clone https://github.com/Cuuper22/Erdos.git && cd Erdos
 pip install -e "."
-python -m src.environment --install    # sets up Lean toolchain
+ERDOS_MOCK_MODE=1 python -m src.solver --manifest manifest.json
 ```
 
-Set an API key:
+Mock mode runs without an API key. You'll see the Prover/Critic loop execute with simulated LLM responses.
+
+<details>
+<summary>Full setup (with real LLM providers)</summary>
+
+### Install Lean toolchain
+
+```bash
+python -m src.environment --install
+```
+
+### Set an API key
+
 ```bash
 export GOOGLE_API_KEY="your-key"
 # Or: OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_URL for local models
 ```
 
-Run:
+### Run
+
 ```bash
 python -m src.solver --manifest manifest.json
 python -m src.solver --manifest manifest.json --problem-id Erdos1024
 python -m src.solver --list-solutions
 ```
 
-Mock mode (no API key):
+</details>
+
+<details>
+<summary>Desktop app</summary>
+
+Download from [Releases](https://github.com/Cuuper22/Erdos/releases) — Python is bundled, no installation needed:
+
+- Windows: `.msi` / `.exe`
+- macOS: `.dmg`
+- Linux: `.AppImage` / `.deb`
+
+Or build from source:
+
 ```bash
-export ERDOS_MOCK_MODE=1
-python -m src.solver --manifest manifest.json
+cd gui && npm install
+npm run tauri dev      # dev mode with hot reload
+npm run tauri build    # production build
 ```
 
-## LLM Providers
+</details>
+
+## Architecture
+
+```mermaid
+graph TD
+    A[Problem Manifest] --> B[Solver]
+    B --> C[Prover Agent]
+    C -->|generates proof| D[Lean 4 Sandbox]
+    D -->|compile fails| C
+    D -->|compiles| E[SHA-256 Check]
+    E -->|hash mismatch| F[REJECTED: Theorem Modified]
+    E -->|hash matches| G[Critic Agent]
+    G -->|rejects| C
+    G -->|approves| H[Verified Proof]
+
+    style F fill:#ff4444,color:#fff
+    style H fill:#22c55e,color:#fff
+```
+
+The loop runs like this: the Prover generates a proof candidate, the sandbox compiles it against Lean 4, the integrity checker verifies the theorem statement hasn't been modified (SHA-256 hash comparison), and the Critic reviews for quality and security. If anything fails, the error feeds back to the Prover with exponential backoff. Budget tracking kills the loop if costs exceed the configured limit.
+
+The security layer in `validator.py` goes beyond theorem locking — it blocks banned tactics (`sorry`, `admit`, `axiom`), catches IO violations (`IO.FS`, `System.Process`), and flags suspicious imports. The sandbox isolates each Lean build in its own directory.
+
+## Demo
+
+<!-- TODO: Add terminal recording or screenshot of mock mode output -->
+
+*To be added — terminal recording of a mock proof attempt showing the Prover/Critic loop in action.*
+
+## LLM providers
 
 All implemented, auto-detected from environment variables:
 
@@ -80,69 +150,55 @@ Or `config.json`:
 }
 ```
 
-## Architecture
-
-**Python Backend:**
-- `solver.py` — Prover/Critic loop with exponential backoff, JSON Lines event output
-- `validator.py` — Security analysis: banned patterns, IO violations, suspicious imports (SHA-256 theorem locking)
-- `sandbox.py` — Isolated Lean build environments
-- `environment.py` — Auto-installs elan/Lean toolchain, SHA-256 verified downloads, toolchain caching
-- `manifest.py` — Remote problem manifest fetching with GitHub URL conversion, TTL caching, offline fallback
-- `campaign.py` — Problem history persistence, unsolved prioritization
-- `packager.py` — ZIP artifact bundling (proof, build log, critique, metadata) with JSON solution index
-- `llm/` — Provider factory with auto-detection, retry logic, cost tracking
-
-**Desktop GUI (Tauri):**
-- Rust backend: async process spawning, typed IPC events, settings persistence
-- React frontend: settings panel (4 providers + custom model), log viewer with filtering/search, cost progress bar, proof viewer with Lean 4 syntax highlighting, solution export
-
-**CI/CD:**
-- Tests run on push (Python 3.10-3.12 matrix + Rust clippy/build)
-- Tag push triggers: pytest → PyInstaller build (3 platforms) → Tauri build with sidecar → GitHub Release
-
-## Project Structure
+## Project structure
 
 ```
 Erdos/
 ├── src/                        # Python backend
-│   ├── solver.py               # Prover/Critic loop
-│   ├── validator.py            # Security + theorem integrity
-│   ├── sandbox.py              # Isolated Lean builds
-│   ├── environment.py          # Lean/elan management
-│   ├── manifest.py             # Remote problem manifests
-│   ├── campaign.py             # Problem history tracking
-│   ├── packager.py             # Solution ZIP bundling
-│   ├── config.py               # Configuration
+│   ├── solver.py               # Prover/Critic loop with exponential backoff
+│   ├── validator.py            # SHA-256 theorem locking + security analysis
+│   ├── sandbox.py              # Isolated Lean build environments
+│   ├── environment.py          # Lean/elan toolchain management
+│   ├── manifest.py             # Remote problem manifests with caching
+│   ├── campaign.py             # Problem history + unsolved prioritization
+│   ├── packager.py             # Solution ZIP bundling with JSON index
+│   ├── config.py               # Configuration from env/file/defaults
 │   ├── events.py               # JSON Lines event system
 │   └── llm/                    # LLM provider factory
-│       ├── factory.py          # Auto-detection + instantiation
+│       ├── factory.py          # Auto-detection from env vars
 │       ├── gemini.py           # Google Gemini
 │       ├── openai_provider.py  # OpenAI
 │       ├── anthropic_provider.py # Anthropic
 │       └── ollama_provider.py  # Ollama (local)
 ├── gui/                        # Tauri desktop app
 │   ├── src/                    # React frontend
-│   │   ├── App.tsx             # Main app with event listeners
-│   │   └── components/         # Settings, LogViewer, SolutionsGallery
-│   └── src-tauri/              # Rust backend
-│       └── src/main.rs         # IPC, process management, settings
-├── tests/                      # 195 tests
+│   └── src-tauri/              # Rust backend (IPC, process management)
+├── tests/                      # 200+ tests across 10 modules
 ├── manifest.json               # Problem queue
-├── erdos-solver.spec           # PyInstaller config
-└── .github/workflows/          # CI/CD
+└── .github/workflows/          # CI: pytest (3.10-3.12) + Rust clippy + linting
 ```
 
-## Building from Source
+## Tests
 
 ```bash
-# Desktop GUI
-cd gui && npm install
-npm run tauri dev      # dev mode with hot reload
-npm run tauri build    # production build
-
-# Tests (195 passing)
-python -m pytest tests/ -v
+pytest tests/ -v
 ```
+
+200+ tests across 10 modules:
+
+| Module | What it covers |
+|--------|---------------|
+| test_validator.py | SHA-256 checks, banned patterns, IO violations, theorem integrity |
+| test_llm_providers.py | All 5 LLM backends — init, generate, retry, error handling |
+| test_environment.py | Lean toolchain management, caching, cleanup |
+| test_manifest.py | Remote fetching, caching, merging, URL conversion |
+| test_campaign.py | Problem history, prioritization, persistence |
+| test_packager.py | ZIP bundling, solution index, round-trips |
+| test_config.py | Env var loading, budget tracking, JSON serialization |
+| test_events.py | Event emission, JSON formatting |
+| test_solver.py | Prover/Critic initialization, manifest loading |
+
+CI runs on every push: Python 3.10–3.12 matrix with coverage, Rust clippy + build + test, flake8 + black formatting checks.
 
 ## License
 

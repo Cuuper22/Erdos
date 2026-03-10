@@ -64,7 +64,8 @@ def _create_from_config(config: Config) -> LLMProvider:
 
     elif provider_name == "openai":
         from .openai_provider import OpenAIProvider
-        return OpenAIProvider(api_key=api_key, model=model)
+        reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT")
+        return OpenAIProvider(api_key=api_key, model=model, reasoning_effort=reasoning_effort)
 
     elif provider_name == "anthropic":
         from .anthropic_provider import AnthropicProvider
@@ -105,7 +106,12 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
         try:
             from .openai_provider import OpenAIProvider
             logger.info("Auto-detected OPENAI_API_KEY")
-            return OpenAIProvider(api_key=openai_key, model=model or OpenAIProvider.DEFAULT_MODEL)
+            reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT")
+            return OpenAIProvider(
+                api_key=openai_key,
+                model=model or OpenAIProvider.DEFAULT_MODEL,
+                reasoning_effort=reasoning_effort,
+            )
         except ImportError:
             logger.warning("OPENAI_API_KEY found but openai package not installed")
 

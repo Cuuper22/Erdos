@@ -17,7 +17,7 @@ from typing import Optional
 BANNED_PATTERNS = [
     (re.compile(r"\bsorry\b"), "Incomplete proof tactic 'sorry'"),
     (re.compile(r"\badmit\b"), "Incomplete proof tactic 'admit'"),
-    (re.compile(r"\baxiom\b(?!\s+\w+\s*:)"), "Axiom usage (non-declaration)"),
+    (re.compile(r"\baxiom\b"), "Axiom declaration in proof candidate (potential specification gaming)"),
     (re.compile(r"\bnative_decide\b"), "Unsafe native_decide tactic"),
     (re.compile(r"#eval\s+.*\bIO\b"), "#eval with IO side effects"),
 ]

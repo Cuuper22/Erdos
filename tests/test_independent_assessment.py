@@ -164,21 +164,20 @@ class TestSecurityScanning_IndependentVerification(unittest.TestCase):
         errors = check_banned_patterns("theorem foo : True := by admit")
         self.assertTrue(any("admit" in e for e in errors))
 
-    def test_axiom_in_declaration_not_flagged(self):
-        """'axiom myAxiom : Prop' is a declaration — should NOT be flagged."""
-        # The regex (?!\s+\w+\s*:) should allow declarations
+    def test_axiom_declaration_IS_flagged(self):
+        """ALL axiom usage is banned in LLM proof candidates — including declarations.
+        The original problem file defines what axioms exist; the LLM output
+        should never introduce new axioms."""
         errors = check_banned_patterns("axiom myAxiom : Prop")
         axiom_errors = [e for e in errors if "axiom" in e.lower()]
-        # This is a declaration, so it should be allowed
-        self.assertEqual(len(axiom_errors), 0,
-                         "False positive: axiom declaration flagged as banned")
+        self.assertTrue(len(axiom_errors) > 0,
+                        "Axiom declaration in proof candidate must be caught")
 
     def test_axiom_usage_flagged(self):
-        """Using 'axiom' without declaration form should be flagged."""
-        # Something like "by exact axiom" or standalone axiom usage
+        """All forms of axiom usage should be flagged."""
         errors = check_banned_patterns("exact (axiom)")
         axiom_errors = [e for e in errors if "Axiom" in e or "axiom" in e.lower()]
-        self.assertTrue(len(axiom_errors) > 0, "Non-declaration axiom usage not caught")
+        self.assertTrue(len(axiom_errors) > 0, "Axiom usage not caught")
 
     def test_io_fs_blocked(self):
         errors = check_dangerous_io("open IO.FS.readFile")
@@ -534,21 +533,22 @@ class TestOpenAIProvider_ReasoningEffort(unittest.TestCase):
 
 
 class TestEnvironmentBug_IndependentVerification(unittest.TestCase):
-    """Verify the 'or True' bug in environment.py line 234."""
+    """Verify the 'or True' bug in environment.py has been FIXED."""
 
-    def test_or_true_bug_exists(self):
-        """Confirm that the 'or True' bug is present in the source code."""
+    def test_or_true_bug_is_fixed(self):
+        """Confirm that the 'or True' debug hack has been removed."""
         env_path = Path(__file__).parent.parent / "src" / "environment.py"
         content = env_path.read_text()
-        self.assertIn("or True", content,
-                       "The 'or True' bug appears to have been fixed")
-        # Find the specific line
-        for i, line in enumerate(content.split('\n'), 1):
-            if 'or True' in line and 'installer_path' in line:
-                # Found it — this is a confirmed bug
-                self.assertIn("not installer_path.exists() or True", line)
-                return
-        self.fail("Could not find the specific 'or True' bug pattern")
+        self.assertNotIn("or True", content,
+                          "The 'or True' debug hack should be removed")
+        # Verify the correct cache condition exists
+        found_cache_check = False
+        for line in content.split('\n'):
+            if 'installer_path.exists()' in line:
+                self.assertNotIn("or True", line)
+                found_cache_check = True
+        self.assertTrue(found_cache_check,
+                        "Should still have installer_path.exists() check")
 
 
 # ═══════════════════════════════════════════════════════════════════

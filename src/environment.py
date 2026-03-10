@@ -231,7 +231,7 @@ class EnvironmentManager:
         installer_path = self.cache_dir / "elan-init.sh"
 
         # Use cached installer if available and no network
-        if not installer_path.exists() or True:
+        if not installer_path.exists():
             _download_with_progress(
                 self.ELAN_UNIX_URL,
                 installer_path,

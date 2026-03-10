@@ -234,20 +234,17 @@ class TestRealLeanCompilation(unittest.TestCase):
         self.assertTrue(result.success or "sorry" in result.stderr.lower(),
                         f"Sorry proof didn't behave as expected: {result.stderr}")
 
-    def test_erdos_sandbox_cannot_find_lake_without_path(self):
-        """BUG: Erdos's run_lake_build() uses subprocess.run(['lake', ...])
-        but doesn't add ~/.elan/bin to PATH. This means it CANNOT build
-        on a fresh system where elan installed lake there.
-
-        This is a critical bug: the sandbox is broken for any fresh install."""
+    def test_FIXED_erdos_sandbox_finds_lake_via_discovery(self):
+        """FIXED: run_lake_build() now uses _discover_elan_bin() to find
+        elan even when it's not in the system PATH. This test verifies
+        that lake is found through the discovery mechanism."""
         _setup_lean_project()
         test_file = LEAN_PROJECT_DIR / "RealTest" / "SandboxBuildTest.lean"
         test_file.write_text(CORRECT_PROOF)
 
-        # Save and clear PATH to simulate fresh install
+        # Remove elan from PATH to simulate fresh install
         import os
         old_path = os.environ.get("PATH", "")
-        # Remove elan from PATH if present
         clean_path = ":".join(
             p for p in old_path.split(":")
             if ".elan" not in p
@@ -256,11 +253,9 @@ class TestRealLeanCompilation(unittest.TestCase):
 
         try:
             result = run_lake_build(LEAN_PROJECT_DIR, timeout_seconds=120)
-            # This SHOULD fail because lake is not in PATH
-            self.assertFalse(result.success,
-                             "run_lake_build succeeded without elan in PATH — "
-                             "this test expected failure to demonstrate the bug")
-            self.assertIn("not found", result.stderr.lower())
+            # With _discover_elan_bin, lake should be found via ~/.elan/bin/
+            self.assertTrue(result.success,
+                            f"run_lake_build should find lake via discovery: {result.stderr}")
         finally:
             os.environ["PATH"] = old_path
 
@@ -388,17 +383,17 @@ class TestRealCheatingDetection(unittest.TestCase):
         self.assertFalse(result.is_valid,
                          "CRITICAL: Sorry left in proof NOT caught!")
 
-    def test_BUG_axiom_abuse_NOT_caught(self):
-        """BUG: The axiom regex allows 'axiom my_cheat : 1 + 1 = 2' because
-        it matches the declaration pattern (axiom followed by name : type).
-        This means an LLM can introduce a custom axiom to trivially prove
-        anything, completely bypassing the integrity check.
-
-        This is a CRITICAL security hole in the validator."""
+    def test_axiom_abuse_IS_caught(self):
+        """FIXED: The axiom regex now bans ALL axiom usage in proof candidates.
+        Previously, declaration-form axioms like 'axiom my_cheat : P' slipped
+        through due to a negative lookahead in the regex. Now fixed."""
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CHEATED_AXIOM)
-        # This SHOULD be False (axiom abuse), but it's True (bug!)
-        self.assertTrue(result.is_valid,
-                        "If this fails, the axiom bug has been fixed!")
+        self.assertFalse(result.is_valid,
+                         "CRITICAL: Axiom abuse should be caught after fix!")
+        self.assertTrue(
+            any("axiom" in e.lower() for e in result.errors),
+            f"Error should mention axiom: {result.errors}"
+        )
 
     def test_io_escape_caught(self):
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CHEATED_IO)
@@ -446,13 +441,10 @@ class TestProverOutputQuality(unittest.TestCase):
         self.assertNotIn("```", candidate)
         self.assertIn("theorem one_plus_one", candidate)
 
-    def test_clean_response_with_just_tactic_bug(self):
-        """BUG: When LLM returns just a tactic (e.g., 'rfl'), _clean_response
-        uses str.replace('sorry', 'rfl', 1) which replaces the FIRST occurrence
-        of 'sorry' in the file. If there are comments containing 'sorry' before
-        the actual proof, the wrong 'sorry' gets replaced.
-
-        This is a real bug in _clean_response."""
+    def test_clean_response_with_just_tactic_fixed(self):
+        """FIXED: When LLM returns just a tactic (e.g., 'rfl'), _clean_response
+        now uses _replace_sorry_in_body() which skips sorry in comments and
+        only replaces sorry in actual code."""
 
         class TacticOnlyProvider(LLMProvider):
             def generate(self, prompt, temperature=0.7, max_tokens=4096):
@@ -469,11 +461,13 @@ class TestProverOutputQuality(unittest.TestCase):
         # File with sorry in a comment AND in proof body
         comment_input = "-- replace sorry with proof\ntheorem one_plus_one : 1 + 1 = 2 := by\n  sorry\n"
         candidate2, _, _ = prover.generate(comment_input)
-        # BUG: replace('sorry', 'rfl', 1) replaces the sorry in the COMMENT
-        # leaving the actual proof sorry intact
-        if "sorry" in candidate2.split(":= by")[1]:
-            # Bug confirmed: sorry still in the proof body
-            pass  # This is the expected buggy behavior
+        # FIXED: comment sorry is preserved, proof body sorry is replaced
+        self.assertIn("-- replace sorry with proof", candidate2,
+                       "Comment should be preserved")
+        proof_body = candidate2.split(":= by")[1]
+        self.assertNotIn("sorry", proof_body,
+                          "Proof body sorry should be replaced with rfl")
+        self.assertIn("rfl", proof_body)
 
     def test_multi_theorem_prover_output(self):
         """Prover with multi-theorem file."""
@@ -483,11 +477,11 @@ class TestProverOutputQuality(unittest.TestCase):
         self.assertNotIn("sorry", candidate)
 
     def test_cheating_prover_caught_at_every_strategy(self):
-        """Each cheating strategy must be caught by integrity + security checks.
-        NOTE: axiom abuse is excluded because it's a known bug (see TestBugsDiscovered)."""
+        """Each cheating strategy must be caught by integrity + security checks."""
         for strategy, cheat_code in [
             ("weaken", CHEATED_WEAKENED),
             ("sorry", CHEATED_SORRY),
+            ("axiom", CHEATED_AXIOM),
             ("io", CHEATED_IO),
         ]:
             with self.subTest(strategy=strategy):
@@ -619,11 +613,11 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
     """The definitive answer: which parts are real and which are scaffolding?"""
 
     def test_validator_is_real(self):
-        """The validator catches real cheating strategies — REAL functionality."""
-        # Test 5 different cheating strategies
+        """The validator catches ALL real cheating strategies — REAL functionality."""
         strategies = [
             ("weaken", CHEATED_WEAKENED),
             ("sorry", CHEATED_SORRY),
+            ("axiom", CHEATED_AXIOM),
             ("io", CHEATED_IO),
         ]
         caught = 0
@@ -633,8 +627,6 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
                 caught += 1
         self.assertEqual(caught, len(strategies),
                          f"Only caught {caught}/{len(strategies)} cheating strategies")
-        # NOTE: axiom abuse is NOT tested here because it's a known bug
-        # (see test_BUG_axiom_abuse_NOT_caught)
 
     def test_theorem_locker_is_real(self):
         """TheoremLocker stores and verifies hashes — REAL functionality."""
@@ -781,49 +773,50 @@ class TestBugsDiscovered(unittest.TestCase):
         self.assertEqual(h_original, h_no_comment,
                          "Removing comments affected hash (unexpected)")
 
-    def test_BUG_clean_response_replaces_wrong_sorry(self):
-        """BUG: _clean_response does str.replace('sorry', tactic, 1)
-        which replaces the FIRST 'sorry' occurrence in the file.
-
-        If a comment contains the word 'sorry' before the actual proof,
-        the comment gets modified instead of the proof body."""
+    def test_FIXED_clean_response_replaces_correct_sorry(self):
+        """FIXED: _clean_response now uses _replace_sorry_in_body() which
+        skips sorry occurrences inside line comments (-- ...) and only
+        replaces sorry in actual code."""
         prover = AgentProver(MockLLMProvider(), temperature=0.7)
 
-        # Input where sorry appears in comment first
+        # Input where sorry appears in comment first, then in proof body
         input_with_comment_sorry = (
             "-- remove sorry here\n"
             "theorem foo : True := by\n"
             "  sorry\n"
         )
-        mock = MockLLMProvider()
-        response = "-- Mock proof generated\nby simp"
-        cleaned = prover._clean_response(response, input_with_comment_sorry)
+        # Simulate a tactic-only LLM response
+        cleaned = prover._clean_response("trivial", input_with_comment_sorry)
 
-        # Check if sorry is still in the proof body
+        # Comment sorry should be preserved
+        self.assertIn("-- remove sorry here", cleaned,
+                       "Comment should be preserved")
+        # Proof body sorry should be replaced
         lines_after_by = cleaned.split(":= by")
-        if len(lines_after_by) > 1:
-            proof_body = lines_after_by[1]
-            if "sorry" in proof_body:
-                # BUG CONFIRMED: sorry in proof body was not replaced
-                pass  # This is expected buggy behavior
+        self.assertTrue(len(lines_after_by) > 1)
+        proof_body = lines_after_by[1]
+        self.assertNotIn("sorry", proof_body,
+                          "Proof body sorry should be replaced")
+        self.assertIn("trivial", proof_body,
+                       "Replacement tactic should be in proof body")
 
-    def test_BUG_sandbox_does_not_integrate_with_environment(self):
-        """BUG: run_lake_build() uses {**os.environ, 'LAKE_NO_INTERACTIVE': '1'}
-        which inherits the current PATH. The environment.py module manages
-        elan installation to ~/.erdos-prover/bin/elan/ and sets PATH there,
-        but the sandbox module does not directly use EnvironmentManager.
-
-        This means: even after running erdos-env --install, the sandbox
-        relies on the caller having elan in PATH already. The solver.py
-        main() function doesn't integrate environment.py with sandbox.py."""
-        from src.sandbox import run_lake_build as _rlb
+    def test_FIXED_sandbox_discovers_elan_path(self):
+        """FIXED: run_lake_build() now calls _discover_elan_bin() to find
+        the elan bin directory and prepend it to PATH before invoking lake.
+        This means it works even on fresh installs where elan is not in
+        the system PATH."""
+        from src.sandbox import _discover_elan_bin
         import inspect
-        source = inspect.getsource(_rlb)
+        source = inspect.getsource(run_lake_build)
 
-        # run_lake_build does NOT call EnvironmentManager.get_env()
-        has_env_manager = "EnvironmentManager" in source
-        self.assertFalse(has_env_manager,
-                         "run_lake_build doesn't use EnvironmentManager — confirmed gap")
+        # run_lake_build now calls _discover_elan_bin
+        self.assertIn("_discover_elan_bin", source,
+                       "run_lake_build should use _discover_elan_bin")
+
+        # Verify _discover_elan_bin checks the right paths
+        elan_source = inspect.getsource(_discover_elan_bin)
+        self.assertIn(".elan", elan_source, "Should check ~/.elan/bin/")
+        self.assertIn("ELAN_HOME", elan_source, "Should check ELAN_HOME env var")
 
 
 if __name__ == "__main__":

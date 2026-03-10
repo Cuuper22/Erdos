@@ -142,6 +142,32 @@ class Sandbox:
         self.cleanup()
 
 
+def _discover_elan_bin() -> Optional[Path]:
+    """Discover the elan bin directory containing lean/lake/elan binaries.
+
+    Checks common locations and ELAN_HOME env var. Returns the first
+    directory found that exists, or None.
+    """
+    candidates = []
+
+    # 1. ELAN_HOME env var
+    elan_home = os.environ.get("ELAN_HOME")
+    if elan_home:
+        candidates.append(Path(elan_home) / "bin")
+
+    # 2. Default ~/.elan/bin/
+    candidates.append(Path.home() / ".elan" / "bin")
+
+    # 3. Erdos app-isolated install
+    candidates.append(Path.home() / ".erdos-prover" / "bin" / "elan" / "bin")
+
+    for candidate in candidates:
+        if candidate.exists() and (candidate / "lake").exists():
+            return candidate
+
+    return None
+
+
 def run_lake_build(
     work_dir: Path,
     timeout_seconds: int = 60,
@@ -165,6 +191,14 @@ def run_lake_build(
     if target:
         cmd.append(target)
     
+    # Discover elan bin directory and ensure it's in PATH
+    env = os.environ.copy()
+    env["LAKE_NO_INTERACTIVE"] = "1"
+    elan_bin = _discover_elan_bin()
+    if elan_bin:
+        path_sep = ";" if os.name == "nt" else ":"
+        env["PATH"] = str(elan_bin) + path_sep + env.get("PATH", "")
+
     try:
         result = subprocess.run(
             cmd,
@@ -172,7 +206,7 @@ def run_lake_build(
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
-            env={**os.environ, "LAKE_NO_INTERACTIVE": "1"}
+            env=env,
         )
         
         duration = time.time() - start_time

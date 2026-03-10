@@ -2,6 +2,7 @@
 
 import os
 import logging
+from pathlib import Path
 from typing import Optional
 
 from .base import LLMProvider
@@ -35,6 +36,10 @@ def create_provider(config: Optional[Config] = None) -> LLMProvider:
     Returns:
         An initialized LLMProvider instance.
     """
+    # ChatGPT provider uses OAuth tokens, not api_key
+    if config and config.llm.provider == "chatgpt":
+        return _create_from_config(config)
+
     if config and config.llm.api_key:
         return _create_from_config(config)
 
@@ -67,7 +72,10 @@ def _create_from_config(config: Config) -> LLMProvider:
 
     elif provider_name == "openai":
         from .openai_provider import OpenAIProvider
-        reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT")
+        reasoning_effort = (
+            config.llm.reasoning_effort
+            or os.environ.get("OPENAI_REASONING_EFFORT")
+        )
         return OpenAIProvider(api_key=api_key, model=model, reasoning_effort=reasoning_effort)
 
     elif provider_name == "anthropic":
@@ -80,6 +88,15 @@ def _create_from_config(config: Config) -> LLMProvider:
             model=model,
             base_url=config.llm.ollama_url,
         )
+
+    elif provider_name == "chatgpt":
+        from .chatgpt_provider import ChatGPTProvider
+        auth_file = os.environ.get("CHATGPT_AUTH_FILE", "chatgpt_auth.json")
+        reasoning_effort = (
+            config.llm.reasoning_effort
+            or os.environ.get("OPENAI_REASONING_EFFORT", "high")
+        )
+        return ChatGPTProvider(auth_file=auth_file, model=model, reasoning_effort=reasoning_effort)
 
     else:
         raise ValueError(f"Unknown provider: {provider_name}")
@@ -143,5 +160,20 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
             model=model or OllamaProvider.DEFAULT_MODEL,
             base_url=ollama_url,
         )
+
+    # ChatGPT OAuth (check for auth file)
+    auth_file = os.environ.get("CHATGPT_AUTH_FILE", "chatgpt_auth.json")
+    if Path(auth_file).exists():
+        try:
+            from .chatgpt_provider import ChatGPTProvider
+            reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT", "high")
+            logger.info(f"Auto-detected ChatGPT auth file: {auth_file}")
+            return ChatGPTProvider(
+                auth_file=auth_file,
+                model=model or ChatGPTProvider.DEFAULT_MODEL,
+                reasoning_effort=reasoning_effort,
+            )
+        except Exception as e:
+            logger.warning(f"ChatGPT auth file found but provider failed: {e}")
 
     return None

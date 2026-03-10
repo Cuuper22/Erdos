@@ -1,20 +1,17 @@
--- Intermediate difficulty theorems for Erdos solver testing
--- These require more than just rfl/simp but are still solvable by LLMs
-
 theorem nat_add_assoc (a b c : Nat) : (a + b) + c = a + (b + c) := by
-  sorry
+  exact Nat.add_assoc a b c
 
 theorem nat_mul_zero (n : Nat) : n * 0 = 0 := by
-  sorry
+  exact Nat.mul_zero n
 
 theorem nat_succ_ne_zero (n : Nat) : n + 1 ≠ 0 := by
-  sorry
+  simpa using Nat.succ_ne_zero n
 
 theorem bool_and_comm (a b : Bool) : (a && b) = (b && a) := by
-  sorry
+  cases a <;> cases b <;> rfl
 
 theorem list_length_nil : ([] : List Nat).length = 0 := by
-  sorry
+  rfl
 
 theorem nat_le_succ (n : Nat) : n ≤ n + 1 := by
-  sorry
+  simpa using Nat.le_succ n

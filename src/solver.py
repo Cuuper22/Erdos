@@ -679,6 +679,15 @@ def main():
 
     args = parser.parse_args()
 
+    # Load .env if present (API keys, reasoning_effort, etc.)
+    env_path = Path(".env")
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and "=" in line and not line.startswith("#"):
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip())
+
     # Configure logging
     setup_logging(json_mode=args.json_logs)
 

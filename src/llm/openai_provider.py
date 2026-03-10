@@ -32,6 +32,7 @@ class OpenAIProvider(LLMProvider):
     BASE_DELAY = 1.0
     MAX_DELAY = 30.0
     _TRANSIENT_STATUS_CODES = {429, 500, 502, 503}
+    _VALID_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
 
     def __init__(
         self,
@@ -39,6 +40,7 @@ class OpenAIProvider(LLMProvider):
         model: str = DEFAULT_MODEL,
         max_retries: int = MAX_RETRIES,
         timeout: int = 60,
+        reasoning_effort: Optional[str] = None,
     ):
         try:
             import openai
@@ -59,8 +61,15 @@ class OpenAIProvider(LLMProvider):
         self.model_name = model
         self.max_retries = max_retries
         self.timeout = timeout
+        self.reasoning_effort = reasoning_effort
+        if reasoning_effort and reasoning_effort not in self._VALID_REASONING_EFFORTS:
+            raise ValueError(
+                f"Invalid reasoning_effort '{reasoning_effort}'. "
+                f"Must be one of: {', '.join(sorted(self._VALID_REASONING_EFFORTS))}"
+            )
         self.client = self._openai.OpenAI(api_key=self.api_key, timeout=timeout)
-        logger.info(f"Initialized OpenAI provider with model: {model}")
+        logger.info(f"Initialized OpenAI provider with model: {model}"
+                     + (f", reasoning_effort: {reasoning_effort}" if reasoning_effort else ""))
 
     def _is_transient(self, error: Exception) -> bool:
         """Check if an error is transient and should be retried."""
@@ -85,12 +94,20 @@ class OpenAIProvider(LLMProvider):
         last_error = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                kwargs = {
+                    "model": self.model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                }
+
+                # When reasoning effort is set (and not "none"), temperature
+                # is not supported by the API — pass reasoning_effort instead.
+                if self.reasoning_effort and self.reasoning_effort != "none":
+                    kwargs["reasoning_effort"] = self.reasoning_effort
+                else:
+                    kwargs["temperature"] = temperature
+
+                response = self.client.chat.completions.create(**kwargs)
 
                 response_text = response.choices[0].message.content or ""
                 input_tokens = response.usage.prompt_tokens if response.usage else len(prompt) // 4

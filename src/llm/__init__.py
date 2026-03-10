@@ -19,6 +19,8 @@ except ImportError:
     AnthropicProvider = None
     AnthropicAPIError = None
 
+from .chatgpt_provider import ChatGPTProvider, ChatGPTAPIError
+
 __all__ = [
     'LLMProvider',
     'MockLLMProvider',
@@ -30,5 +32,7 @@ __all__ = [
     'AnthropicAPIError',
     'OllamaProvider',
     'OllamaAPIError',
+    'ChatGPTProvider',
+    'ChatGPTAPIError',
     'create_provider',
 ]

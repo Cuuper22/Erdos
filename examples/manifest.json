@@ -17,6 +17,12 @@
       "path": "number_theory.lean",
       "difficulty": "Medium",
       "maintainer_note": "Elementary number theory. May need omega, cases, or induction."
+    },
+    {
+      "id": "intermediate_001",
+      "path": "intermediate.lean",
+      "difficulty": "Medium",
+      "maintainer_note": "Intermediate theorems requiring induction, cases, or omega."
     }
   ]
 }

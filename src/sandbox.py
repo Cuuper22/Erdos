@@ -6,6 +6,7 @@ and captures build output for error analysis.
 """
 
 import os
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -89,8 +92,33 @@ class Sandbox:
                     shutil.copytree(item, self.work_dir / item.name, dirs_exist_ok=True)
                 else:
                     shutil.copy2(item, self.work_dir / item.name)
-        
+
+        # If no lakefile exists, initialize a minimal Lean project
+        has_lakefile = any(
+            (self.work_dir / name).exists()
+            for name in ("lakefile.lean", "lakefile.toml", "lakefile")
+        )
+        if not has_lakefile:
+            self._init_lean_project()
+
         return self.work_dir
+
+    def _init_lean_project(self) -> None:
+        """Initialize a minimal Lean 4 project in the sandbox."""
+        lake_bin = _discover_elan_bin()
+        lake_cmd = str(lake_bin / "lake") if lake_bin else "lake"
+
+        try:
+            result = subprocess.run(
+                [lake_cmd, "init", "ErdosSandbox"],
+                cwd=self.work_dir,
+                capture_output=True, text=True, timeout=30,
+                env={**os.environ, "PATH": f"{lake_bin}:{os.environ.get('PATH', '')}"} if lake_bin else None,
+            )
+            if result.returncode != 0:
+                logger.warning(f"lake init failed: {result.stderr[:200]}")
+        except Exception as e:
+            logger.warning(f"Could not initialize Lean project: {e}")
     
     def cleanup(self) -> None:
         """Remove the sandbox directory."""
@@ -142,6 +170,32 @@ class Sandbox:
         self.cleanup()
 
 
+def _discover_elan_bin() -> Optional[Path]:
+    """Discover the elan bin directory containing lean/lake/elan binaries.
+
+    Checks common locations and ELAN_HOME env var. Returns the first
+    directory found that exists, or None.
+    """
+    candidates = []
+
+    # 1. ELAN_HOME env var
+    elan_home = os.environ.get("ELAN_HOME")
+    if elan_home:
+        candidates.append(Path(elan_home) / "bin")
+
+    # 2. Default ~/.elan/bin/
+    candidates.append(Path.home() / ".elan" / "bin")
+
+    # 3. Erdos app-isolated install
+    candidates.append(Path.home() / ".erdos-prover" / "bin" / "elan" / "bin")
+
+    for candidate in candidates:
+        if candidate.exists() and (candidate / "lake").exists():
+            return candidate
+
+    return None
+
+
 def run_lake_build(
     work_dir: Path,
     timeout_seconds: int = 60,
@@ -165,6 +219,14 @@ def run_lake_build(
     if target:
         cmd.append(target)
     
+    # Discover elan bin directory and ensure it's in PATH
+    env = os.environ.copy()
+    env["LAKE_NO_INTERACTIVE"] = "1"
+    elan_bin = _discover_elan_bin()
+    if elan_bin:
+        path_sep = ";" if os.name == "nt" else ":"
+        env["PATH"] = str(elan_bin) + path_sep + env.get("PATH", "")
+
     try:
         result = subprocess.run(
             cmd,
@@ -172,7 +234,7 @@ def run_lake_build(
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
-            env={**os.environ, "LAKE_NO_INTERACTIVE": "1"}
+            env=env,
         )
         
         duration = time.time() - start_time

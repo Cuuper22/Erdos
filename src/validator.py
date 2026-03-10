@@ -17,7 +17,7 @@ from typing import Optional
 BANNED_PATTERNS = [
     (re.compile(r"\bsorry\b"), "Incomplete proof tactic 'sorry'"),
     (re.compile(r"\badmit\b"), "Incomplete proof tactic 'admit'"),
-    (re.compile(r"\baxiom\b(?!\s+\w+\s*:)"), "Axiom usage (non-declaration)"),
+    (re.compile(r"\baxiom\b"), "Axiom declaration in proof candidate (potential specification gaming)"),
     (re.compile(r"\bnative_decide\b"), "Unsafe native_decide tactic"),
     (re.compile(r"#eval\s+.*\bIO\b"), "#eval with IO side effects"),
 ]
@@ -73,12 +73,22 @@ class ValidationResult:
 
 def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) -> str:
     """Extract the theorem statement from Lean code (up to :=)."""
+    # Strip comment lines to avoid matching 'theorem' in comments
+    # like "-- Example theorem with sorry"
+    stripped_lines = []
+    for line in content.split('\n'):
+        if line.lstrip().startswith('--'):
+            stripped_lines.append('')
+        else:
+            stripped_lines.append(line)
+    stripped_content = '\n'.join(stripped_lines)
+
     if theorem_name:
         pattern = rf'(?:theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?:='
     else:
         pattern = r'(?:theorem\s+\w+|lemma\s+\w+).*?:='
 
-    match = re.search(pattern, content, re.DOTALL)
+    match = re.search(pattern, stripped_content, re.DOTALL)
     if match:
         return match.group(0)
 
@@ -88,6 +98,8 @@ def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) 
     in_theorem = False
 
     for line in lines:
+        if line.lstrip().startswith('--'):
+            continue
         if re.match(r'\s*(theorem|lemma)\s+\w+', line):
             in_theorem = True
         if in_theorem:

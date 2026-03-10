@@ -2,6 +2,7 @@
 
 import os
 import logging
+from pathlib import Path
 from typing import Optional
 
 from .base import LLMProvider
@@ -35,6 +36,10 @@ def create_provider(config: Optional[Config] = None) -> LLMProvider:
     Returns:
         An initialized LLMProvider instance.
     """
+    # ChatGPT provider uses OAuth tokens, not api_key
+    if config and config.llm.provider == "chatgpt":
+        return _create_from_config(config)
+
     if config and config.llm.api_key:
         return _create_from_config(config)
 
@@ -59,12 +64,19 @@ def _create_from_config(config: Config) -> LLMProvider:
     model = config.llm.model
 
     if provider_name in ("google", "gemini"):
-        from .gemini import GeminiProvider
-        return GeminiProvider(api_key=api_key, model=model)
+        try:
+            from .gemini import GeminiProvider
+            return GeminiProvider(api_key=api_key, model=model)
+        except BaseException as e:
+            raise ValueError(f"Gemini provider failed to initialize: {e}") from e
 
     elif provider_name == "openai":
         from .openai_provider import OpenAIProvider
-        return OpenAIProvider(api_key=api_key, model=model)
+        reasoning_effort = (
+            config.llm.reasoning_effort
+            or os.environ.get("OPENAI_REASONING_EFFORT")
+        )
+        return OpenAIProvider(api_key=api_key, model=model, reasoning_effort=reasoning_effort)
 
     elif provider_name == "anthropic":
         from .anthropic_provider import AnthropicProvider
@@ -77,6 +89,15 @@ def _create_from_config(config: Config) -> LLMProvider:
             base_url=config.llm.ollama_url,
         )
 
+    elif provider_name == "chatgpt":
+        from .chatgpt_provider import ChatGPTProvider
+        auth_file = os.environ.get("CHATGPT_AUTH_FILE", "chatgpt_auth.json")
+        reasoning_effort = (
+            config.llm.reasoning_effort
+            or os.environ.get("OPENAI_REASONING_EFFORT", "high")
+        )
+        return ChatGPTProvider(auth_file=auth_file, model=model, reasoning_effort=reasoning_effort)
+
     else:
         raise ValueError(f"Unknown provider: {provider_name}")
 
@@ -88,16 +109,22 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
     # Check GEMINI_API_KEY first (more specific)
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
-        from .gemini import GeminiProvider
-        logger.info("Auto-detected GEMINI_API_KEY")
-        return GeminiProvider(api_key=gemini_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        try:
+            from .gemini import GeminiProvider
+            logger.info("Auto-detected GEMINI_API_KEY")
+            return GeminiProvider(api_key=gemini_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        except BaseException as e:
+            logger.warning(f"GEMINI_API_KEY found but Gemini provider failed to initialize: {e}")
 
     # Then GOOGLE_API_KEY
     google_key = os.environ.get("GOOGLE_API_KEY")
     if google_key:
-        from .gemini import GeminiProvider
-        logger.info("Auto-detected GOOGLE_API_KEY")
-        return GeminiProvider(api_key=google_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        try:
+            from .gemini import GeminiProvider
+            logger.info("Auto-detected GOOGLE_API_KEY")
+            return GeminiProvider(api_key=google_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        except BaseException as e:
+            logger.warning(f"GOOGLE_API_KEY found but Gemini provider failed to initialize: {e}")
 
     # OpenAI
     openai_key = os.environ.get("OPENAI_API_KEY")
@@ -105,7 +132,12 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
         try:
             from .openai_provider import OpenAIProvider
             logger.info("Auto-detected OPENAI_API_KEY")
-            return OpenAIProvider(api_key=openai_key, model=model or OpenAIProvider.DEFAULT_MODEL)
+            reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT")
+            return OpenAIProvider(
+                api_key=openai_key,
+                model=model or OpenAIProvider.DEFAULT_MODEL,
+                reasoning_effort=reasoning_effort,
+            )
         except ImportError:
             logger.warning("OPENAI_API_KEY found but openai package not installed")
 
@@ -128,5 +160,20 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
             model=model or OllamaProvider.DEFAULT_MODEL,
             base_url=ollama_url,
         )
+
+    # ChatGPT OAuth (check for auth file)
+    auth_file = os.environ.get("CHATGPT_AUTH_FILE", "chatgpt_auth.json")
+    if Path(auth_file).exists():
+        try:
+            from .chatgpt_provider import ChatGPTProvider
+            reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT", "high")
+            logger.info(f"Auto-detected ChatGPT auth file: {auth_file}")
+            return ChatGPTProvider(
+                auth_file=auth_file,
+                model=model or ChatGPTProvider.DEFAULT_MODEL,
+                reasoning_effort=reasoning_effort,
+            )
+        except Exception as e:
+            logger.warning(f"ChatGPT auth file found but provider failed: {e}")
 
     return None

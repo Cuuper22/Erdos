@@ -1,13 +1,11 @@
--- Basic algebraic identities for testing the Erdos solver
-
 theorem add_comm (a b : Nat) : a + b = b + a := by
-  sorry
+  exact Nat.add_comm a b
 
 theorem mul_one (n : Nat) : n * 1 = n := by
-  sorry
+  exact Nat.mul_one n
 
 theorem add_zero (n : Nat) : n + 0 = n := by
-  sorry
+  exact Nat.add_zero n
 
 theorem mul_comm (a b : Nat) : a * b = b * a := by
-  sorry
+  exact Nat.mul_comm a b

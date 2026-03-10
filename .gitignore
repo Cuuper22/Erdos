@@ -36,6 +36,10 @@ env/
 .DS_Store
 Thumbs.db
 
+# Environment secrets
+.env
+chatgpt_auth.json
+
 # Project specific
 .erdos-prover/
 solutions/

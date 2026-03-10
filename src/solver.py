@@ -30,6 +30,70 @@ from .events import (
 logger = logging.getLogger(__name__)
 
 
+# ── LLM Feedback Isolation ──
+# The LLM must never see internal validation details, security check names,
+# file paths, budget info, or anything that reveals how the eval harness works.
+# It only receives sanitized compiler feedback to refine its proof approach.
+
+class FeedbackSanitizer:
+    """Sanitizes error feedback before it reaches the LLM.
+
+    The LLM should only see Lean compiler errors (real feedback it can learn
+    from). It must NOT see:
+    - Security validation internals (banned patterns, hash mismatches)
+    - Sandbox paths or infrastructure details
+    - Budget/cost information
+    - Any reference to the eval harness or testing infrastructure
+
+    This prevents the LLM from learning about and gaming the security checks.
+    """
+
+    # Prefixes that indicate internal system messages (never show to LLM)
+    _SYSTEM_PREFIXES = ("SYSTEM:", "BUDGET:", "INTERNAL:")
+
+    # Patterns to strip from compiler feedback
+    _PATH_PATTERN = re.compile(r'(/[^\s:]+/sandbox_[^\s:]+/)')
+    _HASH_PATTERN = re.compile(r'[a-f0-9]{16,64}')
+
+    # Generic replacement for system-level rejections
+    _GENERIC_REJECTION = (
+        "Your proof was rejected. Try a different approach using standard "
+        "Lean 4 tactics (simp, ring, omega, rfl, exact, apply, have, etc.)."
+    )
+
+    @classmethod
+    def sanitize(cls, error_message: str) -> str:
+        """Sanitize an error message for LLM consumption.
+
+        Args:
+            error_message: Raw error from the solver pipeline
+
+        Returns:
+            Sanitized message safe to show to the LLM
+        """
+        if not error_message:
+            return cls._GENERIC_REJECTION
+
+        # System-level messages get fully replaced
+        for prefix in cls._SYSTEM_PREFIXES:
+            if error_message.startswith(prefix):
+                return cls._GENERIC_REJECTION
+
+        # Compiler errors are useful — sanitize paths but keep the message
+        if error_message.startswith("COMPILER:"):
+            sanitized = error_message[len("COMPILER:"):].strip()
+            sanitized = cls._PATH_PATTERN.sub('<file>/', sanitized)
+            return f"Lean compiler error:\n{sanitized}"
+
+        # Critic feedback is useful — pass through with path scrubbing
+        if error_message.startswith("CRITIC:"):
+            return error_message[len("CRITIC:"):].strip()
+
+        # Unknown format — scrub paths and pass through
+        sanitized = cls._PATH_PATTERN.sub('', error_message)
+        return sanitized
+
+
 # Error classification
 class _ErrorKind:
     TRANSIENT = "transient"  # Retry with backoff
@@ -174,17 +238,42 @@ Rules:
         # Remove markdown code blocks if present
         response = re.sub(r'```lean\n?', '', response)
         response = re.sub(r'```\n?', '', response)
-        
+
         # If response looks like a complete file, use it
         if 'theorem' in response or 'lemma' in response:
             return response.strip()
-        
+
         # Otherwise, try to insert the response into the original
-        # replacing 'sorry' with the generated proof
+        # replacing 'sorry' in the proof body only (after ':= by'), not in comments
         if 'sorry' in original:
-            return original.replace('sorry', response.strip(), 1)
-        
+            return self._replace_sorry_in_body(original, response.strip())
+
         return response.strip()
+
+    @staticmethod
+    def _replace_sorry_in_body(original: str, replacement: str) -> str:
+        """Replace 'sorry' only in the proof body, skipping comments.
+
+        Finds the first 'sorry' that is NOT inside a line comment (-- ...)
+        and replaces it with the given replacement text.
+        """
+        lines = original.split('\n')
+        for i, line in enumerate(lines):
+            # Strip the comment portion to check if 'sorry' is in code
+            comment_start = line.find('--')
+            if comment_start >= 0:
+                code_part = line[:comment_start]
+            else:
+                code_part = line
+
+            if 'sorry' in code_part:
+                # Replace the first 'sorry' in this line's code portion
+                idx = code_part.index('sorry')
+                lines[i] = line[:idx] + replacement + line[idx + 5:]
+                return '\n'.join(lines)
+
+        # Fallback: no sorry found outside comments — use simple replace
+        return original.replace('sorry', replacement, 1)
 
 
 class AgentCritic:
@@ -404,11 +493,13 @@ class Solver:
                 break
 
             # A. GENERATE proof candidate
+            # Sanitize feedback so LLM never sees eval internals
+            sanitized_error = FeedbackSanitizer.sanitize(last_error) if last_error else None
             try:
                 candidate, in_tokens, out_tokens = self.prover.generate(
                     problem_content=original_content,
                     instructions=problem.maintainer_note,
-                    error_log=last_error
+                    error_log=sanitized_error
                 )
                 cost = self.config.cost.add_usage(in_tokens, out_tokens)
                 emit_event(CostUpdate(
@@ -535,25 +626,41 @@ class Solver:
 def load_manifest(manifest_path: Path) -> list[Problem]:
     """
     Load problems from a manifest file.
-    
+
+    Paths in the manifest are resolved relative to the manifest file's
+    parent directory. If a resolved path exists on disk, the file content
+    is pre-loaded into ``original_content`` so the solver doesn't need
+    the file inside the sandbox.
+
     Args:
         manifest_path: Path to the manifest.json file
-    
+
     Returns:
         List of Problem objects
     """
+    manifest_dir = manifest_path.parent.resolve()
+
     with open(manifest_path, 'r') as f:
         data = json.load(f)
-    
+
     problems = []
     for p in data.get("priority_problems", []):
+        raw_path = p["path"]
+        resolved = manifest_dir / raw_path
+
+        # Pre-load content if the file exists on disk
+        original_content = None
+        if resolved.exists():
+            original_content = resolved.read_text(encoding="utf-8")
+
         problems.append(Problem(
             id=p["id"],
-            path=p["path"],
+            path=str(resolved),
             difficulty=p.get("difficulty", "Unknown"),
-            maintainer_note=p.get("maintainer_note", "")
+            maintainer_note=p.get("maintainer_note", ""),
+            original_content=original_content,
         ))
-    
+
     return problems
 
 
@@ -568,8 +675,18 @@ def main():
     parser.add_argument("--json-logs", action="store_true", help="Output JSON Lines for GUI consumption")
     parser.add_argument("--list-solutions", action="store_true", help="List all packaged solutions")
     parser.add_argument("--view", type=str, metavar="PROBLEM_ID", help="View details of a solution")
+    parser.add_argument("--setup", action="store_true", help="Auto-install Lean/elan if not found before solving")
 
     args = parser.parse_args()
+
+    # Load .env if present (API keys, reasoning_effort, etc.)
+    env_path = Path(".env")
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and "=" in line and not line.startswith("#"):
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip())
 
     # Configure logging
     setup_logging(json_mode=args.json_logs)
@@ -603,13 +720,51 @@ def main():
 
     config.solver.ensure_directories()
 
+    # ── Environment setup / pre-flight ──
+    if args.setup:
+        from .environment import EnvironmentManager
+        env_mgr = EnvironmentManager()
+        status = env_mgr.get_status()
+        if not status.is_ready():
+            logger.info("Lean not found, running automatic setup...")
+            env_mgr.setup_environment()
+            status = env_mgr.get_status()
+            if not status.is_ready():
+                logger.error("Failed to set up Lean environment. Install manually.")
+                return
+        logger.info(f"Environment ready: Lean {status.lean_version}")
+    else:
+        # Pre-flight: check Lean is available
+        from .sandbox import _discover_elan_bin, check_lean_installed
+        elan_bin = _discover_elan_bin()
+        if elan_bin is None:
+            lean_ok, lean_msg = check_lean_installed()
+            if not lean_ok:
+                logger.error(
+                    "Lean is not installed. Install it with:\n"
+                    "  python -m src.environment --install\n"
+                    "  or: erdos-solve --setup --manifest manifest.json\n"
+                    "  or: curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | bash"
+                )
+                return
+
     # Create LLM provider
     try:
         llm = create_provider(config)
         logger.info(f"Using provider: {llm!r}")
-    except Exception as e:
+    except BaseException as e:
         logger.error(f"Failed to initialize LLM provider: {e}")
+        logger.warning(
+            "Falling back to MockLLMProvider -- proofs will NOT be real. "
+            "Set a valid API key (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) for real proofs."
+        )
         llm = MockLLMProvider()
+
+    if isinstance(llm, MockLLMProvider) and not os.environ.get("ERDOS_MOCK_MODE"):
+        logger.warning(
+            "Running with MockLLMProvider (no real LLM). "
+            "Set ERDOS_MOCK_MODE=1 to suppress this warning, or configure an API key."
+        )
 
     solver = Solver(config, llm)
     start_time = time.time()

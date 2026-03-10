@@ -232,11 +232,12 @@ class TestNewBannedPatterns(unittest.TestCase):
         errors = check_banned_patterns(content)
         self.assertFalse(any("#eval" in e.lower() for e in errors))
 
-    def test_axiom_declaration_allowed(self):
-        """axiom declarations (axiom name : type) should NOT be banned."""
+    def test_axiom_declaration_banned_in_candidates(self):
+        """ALL axiom usage is banned in LLM proof candidates — including declarations.
+        LLM-generated proofs must never introduce new axioms (specification gaming)."""
         content = "axiom myAxiom : Nat -> Nat"
         errors = check_banned_patterns(content)
-        self.assertFalse(any("axiom" in e.lower() for e in errors))
+        self.assertTrue(any("axiom" in e.lower() for e in errors))
 
 
 class TestNewIOPatterns(unittest.TestCase):

@@ -1,0 +1,16 @@
+{
+  "llm": {
+    "provider": "chatgpt",
+    "model": "gpt-5.4",
+    "reasoning_effort": "high",
+    "temperature_prover": 0.7,
+    "temperature_critic": 0.1
+  },
+  "cost": {
+    "max_cost_usd": 1.0
+  },
+  "solver": {
+    "max_retries": 3,
+    "build_timeout_seconds": 120
+  }
+}

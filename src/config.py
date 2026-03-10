@@ -18,6 +18,7 @@ class LLMConfig:
     provider: str = "google"  # "openai", "anthropic", "google", or "ollama"
     api_key: Optional[str] = None
     model: str = "gemini-3-flash"
+    reasoning_effort: Optional[str] = None  # "none", "low", "medium", "high", "xhigh"
     temperature_prover: float = 0.7
     temperature_critic: float = 0.1
     ollama_url: str = "http://localhost:11434"
@@ -100,7 +101,10 @@ class Config:
         
         if os.environ.get("LLM_MODEL"):
             config.llm.model = os.environ["LLM_MODEL"]
-        
+
+        if os.environ.get("OPENAI_REASONING_EFFORT"):
+            config.llm.reasoning_effort = os.environ["OPENAI_REASONING_EFFORT"]
+
         # Cost configuration
         if os.environ.get("MAX_COST_USD"):
             config.cost.max_cost_usd = float(os.environ["MAX_COST_USD"])
@@ -140,6 +144,7 @@ class Config:
             config.llm.provider = llm_data.get("provider", config.llm.provider)
             config.llm.api_key = llm_data.get("api_key", config.llm.api_key)
             config.llm.model = llm_data.get("model", config.llm.model)
+            config.llm.reasoning_effort = llm_data.get("reasoning_effort", config.llm.reasoning_effort)
             config.llm.temperature_prover = llm_data.get("temperature_prover", config.llm.temperature_prover)
             config.llm.temperature_critic = llm_data.get("temperature_critic", config.llm.temperature_critic)
             config.llm.ollama_url = llm_data.get("ollama_url", config.llm.ollama_url)
@@ -158,7 +163,19 @@ class Config:
                 config.solver.cache_dir = Path(solver_data["cache_dir"])
         
         config.manifest_url = data.get("manifest_url", config.manifest_url)
-        
+
+        # Fall back to env var for API key if not in config file
+        if not config.llm.api_key:
+            env_keys = {
+                "openai": "OPENAI_API_KEY",
+                "anthropic": "ANTHROPIC_API_KEY",
+                "google": "GOOGLE_API_KEY",
+                "gemini": "GOOGLE_API_KEY",
+            }
+            env_key = env_keys.get(config.llm.provider)
+            if env_key:
+                config.llm.api_key = os.environ.get(env_key)
+
         return config
     
     def to_dict(self) -> dict:

@@ -59,8 +59,11 @@ def _create_from_config(config: Config) -> LLMProvider:
     model = config.llm.model
 
     if provider_name in ("google", "gemini"):
-        from .gemini import GeminiProvider
-        return GeminiProvider(api_key=api_key, model=model)
+        try:
+            from .gemini import GeminiProvider
+            return GeminiProvider(api_key=api_key, model=model)
+        except BaseException as e:
+            raise ValueError(f"Gemini provider failed to initialize: {e}") from e
 
     elif provider_name == "openai":
         from .openai_provider import OpenAIProvider
@@ -89,16 +92,22 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
     # Check GEMINI_API_KEY first (more specific)
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
-        from .gemini import GeminiProvider
-        logger.info("Auto-detected GEMINI_API_KEY")
-        return GeminiProvider(api_key=gemini_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        try:
+            from .gemini import GeminiProvider
+            logger.info("Auto-detected GEMINI_API_KEY")
+            return GeminiProvider(api_key=gemini_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        except BaseException as e:
+            logger.warning(f"GEMINI_API_KEY found but Gemini provider failed to initialize: {e}")
 
     # Then GOOGLE_API_KEY
     google_key = os.environ.get("GOOGLE_API_KEY")
     if google_key:
-        from .gemini import GeminiProvider
-        logger.info("Auto-detected GOOGLE_API_KEY")
-        return GeminiProvider(api_key=google_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        try:
+            from .gemini import GeminiProvider
+            logger.info("Auto-detected GOOGLE_API_KEY")
+            return GeminiProvider(api_key=google_key, model=model or GeminiProvider.DEFAULT_MODEL)
+        except BaseException as e:
+            logger.warning(f"GOOGLE_API_KEY found but Gemini provider failed to initialize: {e}")
 
     # OpenAI
     openai_key = os.environ.get("OPENAI_API_KEY")

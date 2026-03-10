@@ -626,25 +626,41 @@ class Solver:
 def load_manifest(manifest_path: Path) -> list[Problem]:
     """
     Load problems from a manifest file.
-    
+
+    Paths in the manifest are resolved relative to the manifest file's
+    parent directory. If a resolved path exists on disk, the file content
+    is pre-loaded into ``original_content`` so the solver doesn't need
+    the file inside the sandbox.
+
     Args:
         manifest_path: Path to the manifest.json file
-    
+
     Returns:
         List of Problem objects
     """
+    manifest_dir = manifest_path.parent.resolve()
+
     with open(manifest_path, 'r') as f:
         data = json.load(f)
-    
+
     problems = []
     for p in data.get("priority_problems", []):
+        raw_path = p["path"]
+        resolved = manifest_dir / raw_path
+
+        # Pre-load content if the file exists on disk
+        original_content = None
+        if resolved.exists():
+            original_content = resolved.read_text(encoding="utf-8")
+
         problems.append(Problem(
             id=p["id"],
-            path=p["path"],
+            path=str(resolved),
             difficulty=p.get("difficulty", "Unknown"),
-            maintainer_note=p.get("maintainer_note", "")
+            maintainer_note=p.get("maintainer_note", ""),
+            original_content=original_content,
         ))
-    
+
     return problems
 
 
@@ -659,6 +675,7 @@ def main():
     parser.add_argument("--json-logs", action="store_true", help="Output JSON Lines for GUI consumption")
     parser.add_argument("--list-solutions", action="store_true", help="List all packaged solutions")
     parser.add_argument("--view", type=str, metavar="PROBLEM_ID", help="View details of a solution")
+    parser.add_argument("--setup", action="store_true", help="Auto-install Lean/elan if not found before solving")
 
     args = parser.parse_args()
 
@@ -694,13 +711,51 @@ def main():
 
     config.solver.ensure_directories()
 
+    # ── Environment setup / pre-flight ──
+    if args.setup:
+        from .environment import EnvironmentManager
+        env_mgr = EnvironmentManager()
+        status = env_mgr.get_status()
+        if not status.is_ready():
+            logger.info("Lean not found, running automatic setup...")
+            env_mgr.setup_environment()
+            status = env_mgr.get_status()
+            if not status.is_ready():
+                logger.error("Failed to set up Lean environment. Install manually.")
+                return
+        logger.info(f"Environment ready: Lean {status.lean_version}")
+    else:
+        # Pre-flight: check Lean is available
+        from .sandbox import _discover_elan_bin, check_lean_installed
+        elan_bin = _discover_elan_bin()
+        if elan_bin is None:
+            lean_ok, lean_msg = check_lean_installed()
+            if not lean_ok:
+                logger.error(
+                    "Lean is not installed. Install it with:\n"
+                    "  python -m src.environment --install\n"
+                    "  or: erdos-solve --setup --manifest manifest.json\n"
+                    "  or: curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | bash"
+                )
+                return
+
     # Create LLM provider
     try:
         llm = create_provider(config)
         logger.info(f"Using provider: {llm!r}")
-    except Exception as e:
+    except BaseException as e:
         logger.error(f"Failed to initialize LLM provider: {e}")
+        logger.warning(
+            "Falling back to MockLLMProvider -- proofs will NOT be real. "
+            "Set a valid API key (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) for real proofs."
+        )
         llm = MockLLMProvider()
+
+    if isinstance(llm, MockLLMProvider) and not os.environ.get("ERDOS_MOCK_MODE"):
+        logger.warning(
+            "Running with MockLLMProvider (no real LLM). "
+            "Set ERDOS_MOCK_MODE=1 to suppress this warning, or configure an API key."
+        )
 
     solver = Solver(config, llm)
     start_time = time.time()

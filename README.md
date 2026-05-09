@@ -28,7 +28,7 @@ It supports multiple LLM backends - Gemini, OpenAI, Anthropic, Ollama (local), o
 
 It ships as a desktop app. Tauri GUI with settings panel, log viewer, cost tracking, and proof gallery. Or just use the CLI.
 
-It's a single-person project with 200+ tests across 10 modules, CI running on Python 3.10-3.12, and Rust clippy on the GUI. Not a research lab with a team of 20.
+It's a single-person project with 323 test functions across 10 modules. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
 
 ## How to inspect it
 
@@ -52,15 +52,23 @@ The fix: SHA-256 hashing of the original theorem statement before the loop start
 
 This works because theorem statements are discrete, hashable objects. Not all alignment problems have such clean ground-truth signals. But it's a concrete example of scalable oversight - a verification mechanism that catches what the evaluator (Critic agent) misses.
 
+## Current state
+
+This is a working research prototype, not a benchmark claim. The backend loop, validator, sandbox, provider factory, packaging code, and Tauri GUI are implemented. Mock mode is useful for exercising orchestration without an API key, but it is not evidence of theorem-solving performance.
+
+Real runs need Lean/elan plus a configured model provider or local Ollama. The release workflow can package desktop installers, but there are no public GitHub release artifacts right now, so build the GUI from source if you want to inspect the product layer.
+
+The CI badge is intentionally visible. Provider SDKs and toolchain setup can be brittle; the hiring signal here is the boundary design around specification gaming, plus the tests that encode the failure modes.
+
 ## Try it
 
 ```bash
 git clone https://github.com/Cuuper22/Erdos.git && cd Erdos
 pip install -e "."
-ERDOS_MOCK_MODE=1 python -m src.solver --manifest manifest.json
+ERDOS_MOCK_MODE=1 python -m src.solver --setup --manifest manifest.json
 ```
 
-Mock mode runs without an API key. You'll see the Prover/Critic loop execute with simulated LLM responses.
+Mock mode runs without an API key. The `--setup` flag installs or locates Lean/elan before the loop starts. You'll see the Prover/Critic loop execute with simulated LLM responses.
 
 <details>
 <summary>Full setup (with real LLM providers)</summary>
@@ -91,19 +99,15 @@ python -m src.solver --list-solutions
 <details>
 <summary>Desktop app</summary>
 
-Download from [Releases](https://github.com/Cuuper22/Erdos/releases) - Python is bundled, no installation needed:
-
-- Windows: `.msi` / `.exe`
-- macOS: `.dmg`
-- Linux: `.AppImage` / `.deb`
-
-Or build from source:
+The desktop layer is a Tauri app in `gui/`. Public release artifacts are not published yet; build from source:
 
 ```bash
 cd gui && npm install
 npm run tauri dev      # dev mode with hot reload
 npm run tauri build    # production build
 ```
+
+The packaging workflow in `.github/workflows/build.yml` is set up for Windows, macOS, and Linux installers when run from a tag or manual dispatch.
 
 </details>
 
@@ -137,8 +141,8 @@ All implemented, auto-detected from environment variables:
 |----------|---------|---------------|
 | Google Gemini | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | gemini-3-flash |
 | OpenAI | `OPENAI_API_KEY` | gpt-4o |
-| Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-6 |
-| Ollama (local) | `OLLAMA_URL` | llama3.3 |
+| Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 |
+| Ollama (local) | `OLLAMA_URL` | llama3.2 |
 | Mock (testing) | `ERDOS_MOCK_MODE=1` | n/a |
 
 Override model: `export LLM_MODEL="gemini-3-pro"`
@@ -179,9 +183,9 @@ Erdos/
 ├── gui/                        # Tauri desktop app
 │   ├── src/                    # React frontend
 │   └── src-tauri/              # Rust backend (IPC, process management)
-├── tests/                      # 200+ tests across 10 modules
+├── tests/                      # 323 test functions across 10 modules
 ├── manifest.json               # Problem queue
-└── .github/workflows/          # CI: pytest (3.10-3.12) + Rust clippy + linting
+└── .github/workflows/          # CI: pytest (3.10-3.12) + Rust build/test + linting
 ```
 
 ## Tests
@@ -190,7 +194,7 @@ Erdos/
 pytest tests/ -v
 ```
 
-200+ tests across 10 modules:
+323 test functions across 10 modules:
 
 | Module | What it covers |
 |--------|---------------|
@@ -204,7 +208,7 @@ pytest tests/ -v
 | test_events.py | Event emission, JSON formatting |
 | test_solver.py | Prover/Critic initialization, manifest loading |
 
-CI runs on every push: Python 3.10-3.12 matrix with coverage, Rust clippy + build + test, flake8 + black formatting checks.
+CI runs on every push: Python 3.10-3.12 matrix with coverage, Rust build/test checks, flake8, and black formatting checks.
 
 ## License
 

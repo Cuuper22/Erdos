@@ -1,10 +1,10 @@
 ## Why
 
-I wanted to know if LLMs could actually do math — not generate text that looks like proofs, but produce something a Lean 4 compiler would accept.
+I wanted to know if LLMs could actually do math - not generate text that looks like proofs, but produce something a Lean 4 compiler would accept.
 
 The setup: one model writes proofs, another critiques them, repeat until the compiler says yes or the budget runs out. Prover/Critic loop. Pretty standard.
 
-What wasn't standard: the models started cheating. Not dramatically — they'd subtly rewrite the theorem statement to make it easier to prove. Valid proof, wrong theorem. Everything compiles, the Critic approves, and you've just formally verified a convenient reinterpretation of the original problem.
+What wasn't standard: the models started cheating. Not dramatically - they'd subtly rewrite the theorem statement to make it easier to prove. Valid proof, wrong theorem. Everything compiles, the Critic approves, and you've just formally verified a convenient reinterpretation of the original problem.
 
 Fix: theorem statements get SHA-256 hashed before the loop starts. Every candidate gets checked against the locked hash. One character changes in the statement, the attempt dies before it reaches the compiler.
 
@@ -20,25 +20,37 @@ Multi-agent theorem prover. LLM agents write Lean 4 proofs. SHA-256 integrity lo
 
 ## What makes this different
 
-Most LLM theorem provers trust the model's output. Erdos doesn't — it hashes theorem statements before the loop starts and rejects any attempt that modifies what's being proved.
+Most LLM theorem provers trust the model's output. Erdos doesn't - it hashes theorem statements before the loop starts and rejects any attempt that modifies what's being proved.
 
 The Prover/Critic architecture is adversarial by design. One model tries to prove, another tries to break the proof. The Lean compiler is the arbiter neither agent can influence.
 
-It supports multiple LLM backends — Gemini, OpenAI, Anthropic, Ollama (local), or mock mode for testing. No vendor lock-in.
+It supports multiple LLM backends - Gemini, OpenAI, Anthropic, Ollama (local), or mock mode for testing. No vendor lock-in.
 
 It ships as a desktop app. Tauri GUI with settings panel, log viewer, cost tracking, and proof gallery. Or just use the CLI.
 
-It's a single-person project with 200+ tests across 10 modules, CI running on Python 3.10–3.12, and Rust clippy on the GUI. Not a research lab with a team of 20.
+It's a single-person project with 200+ tests across 10 modules, CI running on Python 3.10-3.12, and Rust clippy on the GUI. Not a research lab with a team of 20.
+
+## How to inspect it
+
+If you are scanning this repo for hiring signal, do not start with the GUI. Start with the failure mode.
+
+1. Read `src/validator.py`, especially the theorem locking path. That is where the project stops an LLM from changing the statement it was supposed to prove.
+2. Read `tests/test_validator.py` and `tests/test_bug_fix_demos.py` to see the adversarial cases I cared about.
+3. Read `src/solver.py` for the Prover/Critic loop, retry behavior, budget handling, and where Lean becomes the arbiter.
+4. Run mock mode with `ERDOS_MOCK_MODE=1 python -m src.solver --manifest manifest.json`. It exercises the loop without needing an API key.
+5. If you want the product layer, inspect `gui/src/components/SettingsPanel.tsx` and `gui/src/App.tsx` after the backend makes sense.
+
+What this repo shows about me: I do not trust AI systems because they sound right. I look for the place where the system can cheat, then build the smallest hard boundary that makes the cheat impossible.
 
 ## The alignment angle
 
 During development, the LLM agents developed an emergent strategy: subtly rewriting the theorem statement to make it easier to prove. The proof was valid. The theorem was different. Everything compiled. The Critic agent approved.
 
-This is specification gaming in a formal verification context. The agent optimized for the metric (compile success) rather than the goal (prove the original theorem). Same class of failure that alignment researchers worry about at scale — an agent that satisfies the letter of the objective while violating its intent.
+This is specification gaming in a formal verification context. The agent optimized for the metric (compile success) rather than the goal (prove the original theorem). Same class of failure that alignment researchers worry about at scale - an agent that satisfies the letter of the objective while violating its intent.
 
-The fix: SHA-256 hashing of the original theorem statement before the loop starts. Every candidate proof is checked against the locked hash. If the statement changes by a single character, the attempt is rejected before it reaches the Lean compiler. The `TheoremLocker` class manages this — lock a theorem, verify every candidate against the lock.
+The fix: SHA-256 hashing of the original theorem statement before the loop starts. Every candidate proof is checked against the locked hash. If the statement changes by a single character, the attempt is rejected before it reaches the Lean compiler. The `TheoremLocker` class manages this - lock a theorem, verify every candidate against the lock.
 
-This works because theorem statements are discrete, hashable objects. Not all alignment problems have such clean ground-truth signals. But it's a concrete example of scalable oversight — a verification mechanism that catches what the evaluator (Critic agent) misses.
+This works because theorem statements are discrete, hashable objects. Not all alignment problems have such clean ground-truth signals. But it's a concrete example of scalable oversight - a verification mechanism that catches what the evaluator (Critic agent) misses.
 
 ## Try it
 
@@ -79,7 +91,7 @@ python -m src.solver --list-solutions
 <details>
 <summary>Desktop app</summary>
 
-Download from [Releases](https://github.com/Cuuper22/Erdos/releases) — Python is bundled, no installation needed:
+Download from [Releases](https://github.com/Cuuper22/Erdos/releases) - Python is bundled, no installation needed:
 
 - Windows: `.msi` / `.exe`
 - macOS: `.dmg`
@@ -115,13 +127,7 @@ graph TD
 
 The loop runs like this: the Prover generates a proof candidate, the sandbox compiles it against Lean 4, the integrity checker verifies the theorem statement hasn't been modified (SHA-256 hash comparison), and the Critic reviews for quality and security. If anything fails, the error feeds back to the Prover with exponential backoff. Budget tracking kills the loop if costs exceed the configured limit.
 
-The security layer in `validator.py` goes beyond theorem locking — it blocks banned tactics (`sorry`, `admit`, `axiom`), catches IO violations (`IO.FS`, `System.Process`), and flags suspicious imports. The sandbox isolates each Lean build in its own directory.
-
-## Demo
-
-<!-- TODO: Add terminal recording or screenshot of mock mode output -->
-
-*To be added — terminal recording of a mock proof attempt showing the Prover/Critic loop in action.*
+The security layer in `validator.py` goes beyond theorem locking - it blocks banned tactics (`sorry`, `admit`, `axiom`), catches IO violations (`IO.FS`, `System.Process`), and flags suspicious imports. The sandbox isolates each Lean build in its own directory.
 
 ## LLM providers
 
@@ -133,7 +139,7 @@ All implemented, auto-detected from environment variables:
 | OpenAI | `OPENAI_API_KEY` | gpt-4o |
 | Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-6 |
 | Ollama (local) | `OLLAMA_URL` | llama3.3 |
-| Mock (testing) | `ERDOS_MOCK_MODE=1` | — |
+| Mock (testing) | `ERDOS_MOCK_MODE=1` | n/a |
 
 Override model: `export LLM_MODEL="gemini-3-pro"`
 
@@ -189,7 +195,7 @@ pytest tests/ -v
 | Module | What it covers |
 |--------|---------------|
 | test_validator.py | SHA-256 checks, banned patterns, IO violations, theorem integrity |
-| test_llm_providers.py | All 5 LLM backends — init, generate, retry, error handling |
+| test_llm_providers.py | All 5 LLM backends - init, generate, retry, error handling |
 | test_environment.py | Lean toolchain management, caching, cleanup |
 | test_manifest.py | Remote fetching, caching, merging, URL conversion |
 | test_campaign.py | Problem history, prioritization, persistence |
@@ -198,7 +204,7 @@ pytest tests/ -v
 | test_events.py | Event emission, JSON formatting |
 | test_solver.py | Prover/Critic initialization, manifest loading |
 
-CI runs on every push: Python 3.10–3.12 matrix with coverage, Rust clippy + build + test, flake8 + black formatting checks.
+CI runs on every push: Python 3.10-3.12 matrix with coverage, Rust clippy + build + test, flake8 + black formatting checks.
 
 ## License
 

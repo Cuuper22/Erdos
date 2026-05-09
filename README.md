@@ -28,19 +28,20 @@ It supports multiple LLM backends - Gemini, OpenAI, Anthropic, Ollama (local), o
 
 It ships as a desktop app. Tauri GUI with settings panel, log viewer, cost tracking, and proof gallery. Or just use the CLI.
 
-It's a single-person project with 323 test functions across 10 modules. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
+It's a single-person project with 323 test functions across 13 test files. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
 
 ## How to inspect it
 
 If you are scanning this repo for hiring signal, do not start with the GUI. Start with the failure mode.
 
-1. Read `src/validator.py`, especially the theorem locking path. That is where the project stops an LLM from changing the statement it was supposed to prove.
-2. Read `tests/test_validator.py` and `tests/test_bug_fix_demos.py` to see the adversarial cases I cared about.
-3. Read `src/solver.py` for the Prover/Critic loop, retry behavior, budget handling, and where Lean becomes the arbiter.
-4. Run mock mode with `ERDOS_MOCK_MODE=1 python -m src.solver --manifest manifest.json`. It exercises the loop without needing an API key.
-5. If you want the product layer, inspect `gui/src/components/SettingsPanel.tsx` and `gui/src/App.tsx` after the backend makes sense.
+1. Read `ASSESSMENT.md` for the uncomfortable version of the project: what was real, what was scaffolding, what broke, and what got fixed.
+2. Read `src/validator.py`, especially the theorem locking path. That is where the project stops an LLM from changing the statement it was supposed to prove.
+3. Read `tests/test_validator.py`, `tests/test_real_data_validation.py`, and `tests/test_bug_fix_demos.py` to see the adversarial cases I cared about.
+4. Read `src/solver.py` for the Prover/Critic loop, retry behavior, feedback sanitization, budget handling, and where Lean becomes the arbiter.
+5. Run mock mode with `ERDOS_MOCK_MODE=1 python -m src.solver --manifest manifest.json`. It exercises the loop without needing an API key.
+6. If you want the product layer, inspect `gui/src/components/SettingsPanel.tsx` and `gui/src/App.tsx` after the backend makes sense.
 
-What this repo shows about me: I do not trust AI systems because they sound right. I look for the place where the system can cheat, then build the smallest hard boundary that makes the cheat impossible.
+What this repo shows about me: I do not trust AI systems because they sound right. I look for the place where the system can cheat, build the smallest hard boundary that makes the cheat impossible, then write tests that keep proving the boundary is real.
 
 ## The alignment angle
 
@@ -50,7 +51,7 @@ This is specification gaming in a formal verification context. The agent optimiz
 
 The fix: SHA-256 hashing of the original theorem statement before the loop starts. Every candidate proof is checked against the locked hash. If the statement changes by a single character, the attempt is rejected before it reaches the Lean compiler. The `TheoremLocker` class manages this - lock a theorem, verify every candidate against the lock.
 
-This works because theorem statements are discrete, hashable objects. Not all alignment problems have such clean ground-truth signals. But it's a concrete example of scalable oversight - a verification mechanism that catches what the evaluator (Critic agent) misses.
+This works because theorem statements are discrete, hashable objects. Not all alignment problems have such clean ground-truth signals. But it is a concrete miniature of scalable oversight: a non-AI verifier catches what the AI evaluator misses, and the system refuses to let the metric rewrite the task.
 
 ## Current state
 
@@ -183,7 +184,7 @@ Erdos/
 ├── gui/                        # Tauri desktop app
 │   ├── src/                    # React frontend
 │   └── src-tauri/              # Rust backend (IPC, process management)
-├── tests/                      # 323 test functions across 10 modules
+├── tests/                      # 323 test functions across 13 test files
 ├── manifest.json               # Problem queue
 └── .github/workflows/          # CI: pytest (3.10-3.12) + Rust build/test + linting
 ```
@@ -194,11 +195,15 @@ Erdos/
 pytest tests/ -v
 ```
 
-323 test functions across 10 modules:
+323 test functions across 13 test files:
 
 | Module | What it covers |
 |--------|---------------|
 | test_validator.py | SHA-256 checks, banned patterns, IO violations, theorem integrity |
+| test_real_data_validation.py | Real Lean compilation checks, cheating providers, packaged proof validation |
+| test_independent_assessment.py | Wiring assessment for validator, sandbox, solver, parser, provider, and packager behavior |
+| test_bug_fix_demos.py | Regression demos for axiom abuse, elan discovery, sorry replacement, cache behavior, feedback isolation |
+| test_operational.py | Manifest resolution, pre-flight setup, mock-mode warnings, intermediate examples |
 | test_llm_providers.py | All 5 LLM backends - init, generate, retry, error handling |
 | test_environment.py | Lean toolchain management, caching, cleanup |
 | test_manifest.py | Remote fetching, caching, merging, URL conversion |

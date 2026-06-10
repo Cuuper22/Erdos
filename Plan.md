@@ -1,5 +1,7 @@
 # Erdos Proof Mining System
 
+> **Status (2026-06-10):** This is the original design document, kept as-written for the record. What's actually shipped: the Prover/Critic solver loop (`src/solver.py`), SHA-256 theorem locking and security validation (`src/validator.py`), isolated Lean build sandbox (`src/sandbox.py`), elan/Lean environment manager with repo cloning and `lake update` handling (`src/environment.py`), remote manifest fetching with caching (`src/manifest.py`), campaign history (`src/campaign.py`), solution ZIP packager with local index (`src/packager.py`), the LLM provider factory (OpenRouter, Gemini, OpenAI, Anthropic, Ollama, mock), the Tauri GUI (`gui/`), and CI workflows (`.github/workflows/`). Still aspirational: automatic submission of proof artifacts to a remote branch or API endpoint (section 3.5 — the packager only writes local ZIPs), enforcement of `min_app_version` (parsed but not acted on), app auto-update, process-level sandbox permission restrictions (isolation is file-level), and published installer artifacts (build workflow exists; no public releases yet).
+
 ## 1. Executive Summary
 
 **Objective:** Create a consumer-grade desktop application that utilizes user-provided compute and API credits to solve formalized mathematical conjectures in Lean 4.

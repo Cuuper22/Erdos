@@ -18,17 +18,19 @@ Multi-agent theorem prover. LLM agents write Lean 4 proofs. SHA-256 integrity lo
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+**Project page:** [cuuper22.github.io/Erdos](https://cuuper22.github.io/Erdos/)
+
 ## What makes this different
 
 Most LLM theorem provers trust the model's output. Erdos doesn't - it hashes theorem statements before the loop starts and rejects any attempt that modifies what's being proved.
 
 The Prover/Critic architecture is adversarial by design. One model tries to prove, another tries to break the proof. The Lean compiler is the arbiter neither agent can influence.
 
-It supports multiple LLM backends - Gemini, OpenAI, Anthropic, Ollama (local), or mock mode for testing. No vendor lock-in.
+It supports multiple LLM backends - OpenRouter (recommended: one key, any model), direct Gemini, OpenAI, Anthropic, Ollama (local), or mock mode for testing. No vendor lock-in.
 
 It ships as a desktop app. Tauri GUI with settings panel, log viewer, cost tracking, and proof gallery. Or just use the CLI.
 
-It's a single-person project with 323 test functions across 13 test files. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
+It's a single-person project with 320+ test functions across 14 test files. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
 
 ## How to inspect it
 
@@ -83,9 +85,11 @@ python -m src.environment --install
 ### Set an API key
 
 ```bash
-export GOOGLE_API_KEY="your-key"
-# Or: OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_URL for local models
+export OPENROUTER_API_KEY="your-key"   # recommended: one key, any model
+# Or: GOOGLE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_URL for local models
 ```
+
+The direct Gemini path uses the deprecated `google-generativeai` SDK, so it ships as an optional extra: `pip install -e ".[gemini]"`.
 
 ### Run
 
@@ -140,13 +144,16 @@ All implemented, auto-detected from environment variables:
 
 | Provider | Env Var | Default Model |
 |----------|---------|---------------|
+| OpenRouter (recommended) | `OPENROUTER_API_KEY` | google/gemini-2.5-flash |
 | Google Gemini | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | gemini-3-flash |
 | OpenAI | `OPENAI_API_KEY` | gpt-4o |
 | Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 |
 | Ollama (local) | `OLLAMA_URL` | llama3.2 |
 | Mock (testing) | `ERDOS_MOCK_MODE=1` | n/a |
 
-Override model: `export LLM_MODEL="gemini-3-pro"`
+OpenRouter is the path of least resistance: one key, any model on their catalog. The direct Gemini provider depends on the deprecated `google-generativeai` SDK, packaged as the `gemini` extra.
+
+Override model: `export LLM_MODEL="google/gemini-2.5-pro"`
 
 ## Configuration
 
@@ -155,7 +162,7 @@ Env vars: `LLM_MODEL`, `MAX_COST_USD`, `MAX_RETRIES`, `BUILD_TIMEOUT`.
 Or `config.json`:
 ```json
 {
-  "llm": { "provider": "google", "model": "gemini-3-flash", "temperature_prover": 0.7, "temperature_critic": 0.1 },
+  "llm": { "provider": "openrouter", "model": "google/gemini-2.5-flash", "temperature_prover": 0.7, "temperature_critic": 0.1 },
   "cost": { "max_cost_usd": 5.0 },
   "solver": { "max_retries": 10, "build_timeout_seconds": 60 }
 }
@@ -177,15 +184,17 @@ Erdos/
 │   ├── events.py               # JSON Lines event system
 │   └── llm/                    # LLM provider factory
 │       ├── factory.py          # Auto-detection from env vars
-│       ├── gemini.py           # Google Gemini
+│       ├── openrouter_provider.py # OpenRouter (recommended: one key, any model)
+│       ├── gemini.py           # Google Gemini (optional `gemini` extra)
 │       ├── openai_provider.py  # OpenAI
 │       ├── anthropic_provider.py # Anthropic
 │       └── ollama_provider.py  # Ollama (local)
 ├── gui/                        # Tauri desktop app
 │   ├── src/                    # React frontend
 │   └── src-tauri/              # Rust backend (IPC, process management)
-├── tests/                      # 323 test functions across 13 test files
-├── manifest.json               # Problem queue
+├── tests/                      # 320+ test functions across 14 test files
+├── manifest.json               # Problem queue (local example problems)
+├── manifest.remote.json        # Sample remote-campaign manifest format (not consumed by code)
 └── .github/workflows/          # CI: pytest (3.10-3.12) + Rust build/test + linting
 ```
 
@@ -195,7 +204,7 @@ Erdos/
 pytest tests/ -v
 ```
 
-323 test functions across 13 test files:
+320+ test functions across 14 test files:
 
 | Module | What it covers |
 |--------|---------------|
@@ -204,7 +213,8 @@ pytest tests/ -v
 | test_independent_assessment.py | Wiring assessment for validator, sandbox, solver, parser, provider, and packager behavior |
 | test_bug_fix_demos.py | Regression demos for axiom abuse, elan discovery, sorry replacement, cache behavior, feedback isolation |
 | test_operational.py | Manifest resolution, pre-flight setup, mock-mode warnings, intermediate examples |
-| test_llm_providers.py | All 5 LLM backends - init, generate, retry, error handling |
+| test_llm_providers.py | Gemini, OpenAI, Anthropic, Ollama, and mock backends - init, generate, retry, error handling |
+| test_openrouter.py | OpenRouter provider - init, model selection, error handling |
 | test_environment.py | Lean toolchain management, caching, cleanup |
 | test_manifest.py | Remote fetching, caching, merging, URL conversion |
 | test_campaign.py | Problem history, prioritization, persistence |
@@ -213,7 +223,7 @@ pytest tests/ -v
 | test_events.py | Event emission, JSON formatting |
 | test_solver.py | Prover/Critic initialization, manifest loading |
 
-CI runs on every push: Python 3.10-3.12 matrix with coverage, Rust build/test checks, flake8, and black formatting checks.
+CI runs on pushes and pull requests: Python 3.10-3.12 matrix with coverage, Rust build/test checks, flake8, and black formatting checks.
 
 ## License
 

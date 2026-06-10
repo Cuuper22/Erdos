@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-10
 **Assessor:** Independent automated review (Claude)
-**Method:** Installed Lean 4.28.0, wrote 145+ tests (66 wiring + 30 real-data + 20 bug fix demos + 16 operational), compiled real theorems against Lean compiler, tested full pipeline end-to-end, fixed 4 critical bugs + 7 operational gaps, added LLM isolation architecture
+**Method:** Installed Lean 4.28.0, wrote 125+ tests (66 wiring + 30 real-data + 16 bug fix demos + 16 operational), compiled real theorems against Lean compiler, tested full pipeline end-to-end, fixed 4 critical bugs + 7 operational gaps, added LLM isolation architecture
 
 ---
 
@@ -183,7 +183,7 @@ After the 4 critical bug fixes above, 7 additional operational gaps were identif
 - `src/llm/factory.py` — Pass `OPENAI_REASONING_EFFORT` env var
 
 ### Tests
-- `tests/test_bug_fix_demos.py` — 20 visual proof demo tests (NEW)
+- `tests/test_bug_fix_demos.py` — 16 visual proof demo tests (NEW)
 - `tests/test_independent_assessment.py` — 66 wiring verification tests
 - `tests/test_real_data_validation.py` — 30 real-data tests with Lean compiler
 - `tests/test_operational.py` — 16 operational tests for all 7 fixes (NEW)

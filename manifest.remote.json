@@ -26,5 +26,5 @@
     "url": "https://github.com/google-deepmind/formal-conjectures",
     "branch": "main"
   },
-  "_note": "This manifest requires cloning the remote repository first. Use manifest.json for local examples."
+  "_note": "Sample of the remote 'campaign' manifest format. The FormalConjectures/* paths live in the google-deepmind/formal-conjectures repository, which is not vendored here - clone it first (src/environment.py can do this). Nothing in src/ reads this file; use manifest.json for the local examples."
 }

@@ -48,6 +48,8 @@ solutions/
 
 # Testing
 .pytest_cache/
+.coverage
+.coverage.*
 coverage.xml
 htmlcov/
 

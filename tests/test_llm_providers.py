@@ -10,6 +10,18 @@ from unittest.mock import Mock, patch, MagicMock
 from src.llm import LLMProvider, MockLLMProvider, GeminiProvider
 from src.llm.gemini import GeminiAPIError
 
+# The Gemini SDK is optional (deprecated upstream; OpenRouter is recommended).
+# Skip SDK-backed tests when it isn't installed.
+try:
+    import google.generativeai  # noqa: F401
+    _HAS_GEMINI_SDK = True
+except ImportError:
+    _HAS_GEMINI_SDK = False
+
+requires_gemini_sdk = pytest.mark.skipif(
+    not _HAS_GEMINI_SDK, reason="google-generativeai not installed"
+)
+
 # Create mock modules for optional SDKs so tests work without them installed
 _mock_openai = MagicMock()
 _mock_openai.OpenAI = MagicMock
@@ -54,6 +66,7 @@ class TestMockProvider:
         assert out_tokens == 10
 
 
+@requires_gemini_sdk
 class TestGeminiProvider:
     """Tests for GeminiProvider (official SDK-based)."""
 
@@ -207,6 +220,18 @@ class TestGeminiProvider:
         """Test that GoogleProvider is an alias for GeminiProvider."""
         from src.llm.gemini import GoogleProvider
         assert GoogleProvider is GeminiProvider
+
+
+class TestGeminiMissingSDK:
+    """Gemini behavior when the optional google-generativeai SDK is absent."""
+
+    def test_gemini_init_without_sdk_raises_helpful_error(self, monkeypatch):
+        """Test GeminiProvider explains how to install the optional SDK."""
+        # Simulate an uninstalled SDK: a None entry makes the import fail
+        monkeypatch.setitem(sys.modules, 'google.generativeai', None)
+
+        with pytest.raises(ImportError, match=r"pip install erdos-prover\[gemini\]"):
+            GeminiProvider(api_key='test-key')
 
 
 class TestOpenAIProvider:
@@ -452,6 +477,7 @@ class TestProviderFactory:
         provider = create_provider()
         assert isinstance(provider, MockLLMProvider)
 
+    @requires_gemini_sdk
     def test_factory_auto_detects_gemini(self):
         """Test factory auto-detects GEMINI_API_KEY."""
         from src.llm.factory import create_provider
@@ -462,6 +488,7 @@ class TestProviderFactory:
                 provider = create_provider()
         assert isinstance(provider, GeminiProvider)
 
+    @requires_gemini_sdk
     def test_factory_from_config(self):
         """Test factory creates provider from explicit config."""
         from src.llm.factory import create_provider

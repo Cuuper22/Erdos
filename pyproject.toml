@@ -24,14 +24,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = [
-    "google-generativeai>=0.8.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
+gemini = ["google-generativeai>=0.8.0"]
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.7.0"]
 all = [
+    "google-generativeai>=0.8.0",
     "openai>=1.0.0",
     "anthropic>=0.7.0",
 ]

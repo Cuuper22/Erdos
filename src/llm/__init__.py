@@ -4,6 +4,7 @@ from .base import LLMProvider
 from .mock import MockLLMProvider
 from .gemini import GeminiProvider, GeminiAPIError
 from .ollama_provider import OllamaProvider, OllamaAPIError
+from .openrouter_provider import OpenRouterProvider, OpenRouterAPIError
 from .factory import create_provider
 
 # Optional providers — only available when their SDK is installed
@@ -32,6 +33,8 @@ __all__ = [
     'AnthropicAPIError',
     'OllamaProvider',
     'OllamaAPIError',
+    'OpenRouterProvider',
+    'OpenRouterAPIError',
     'ChatGPTProvider',
     'ChatGPTAPIError',
     'create_provider',

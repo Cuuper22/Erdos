@@ -1,9 +1,13 @@
 # Core dependencies
-google-generativeai>=0.8.0  # Official Gemini SDK (replaces direct REST calls)
+# (none — the default OpenRouter provider uses only the Python standard library)
 
 # Testing
 pytest>=7.4.0
 pytest-cov>=4.1.0
+
+# Optional: direct Gemini access via the deprecated official SDK
+# (OpenRouter is the recommended provider; install only if using provider "google")
+# google-generativeai>=0.8.0
 
 # Future dependencies (for additional providers):
 # openai>=1.0.0

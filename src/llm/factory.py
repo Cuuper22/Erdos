@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Provider registry: (config_name, env_var, provider_class_path)
 _PROVIDER_PRIORITY = [
+    ("openrouter", "OPENROUTER_API_KEY", "openrouter"),
     ("google", "GOOGLE_API_KEY", "gemini"),
     ("google", "GEMINI_API_KEY", "gemini"),
     ("openai", "OPENAI_API_KEY", "openai"),
@@ -63,7 +64,11 @@ def _create_from_config(config: Config) -> LLMProvider:
     api_key = config.llm.api_key
     model = config.llm.model
 
-    if provider_name in ("google", "gemini"):
+    if provider_name == "openrouter":
+        from .openrouter_provider import OpenRouterProvider
+        return OpenRouterProvider(api_key=api_key, model=model)
+
+    elif provider_name in ("google", "gemini"):
         try:
             from .gemini import GeminiProvider
             return GeminiProvider(api_key=api_key, model=model)
@@ -106,7 +111,14 @@ def _auto_detect(config: Optional[Config] = None) -> Optional[LLMProvider]:
     """Auto-detect provider from environment variables."""
     model = config.llm.model if config else None
 
-    # Check GEMINI_API_KEY first (more specific)
+    # OpenRouter first (recommended — one key, every model)
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        from .openrouter_provider import OpenRouterProvider
+        logger.info("Auto-detected OPENROUTER_API_KEY")
+        return OpenRouterProvider(api_key=openrouter_key, model=model or OpenRouterProvider.DEFAULT_MODEL)
+
+    # Check GEMINI_API_KEY next (more specific)
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
         try:

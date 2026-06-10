@@ -31,6 +31,44 @@ class TestConfigFromEnv(unittest.TestCase):
         os.environ.clear()
         os.environ.update(saved)
     
+    def test_loads_openrouter_api_key(self):
+        """Test that OPENROUTER_API_KEY is detected."""
+        self._clean_env()
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-test123"
+
+        config = Config.from_env()
+
+        self.assertEqual(config.llm.provider, "openrouter")
+        self.assertEqual(config.llm.api_key, "sk-or-test123")
+        self.assertEqual(config.llm.model, "google/gemini-2.5-flash")
+
+    def test_openrouter_takes_priority(self):
+        """Test that OPENROUTER_API_KEY wins when multiple keys are set."""
+        self._clean_env()
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-test123"
+        os.environ["GOOGLE_API_KEY"] = "google_key"
+
+        config = Config.from_env()
+
+        self.assertEqual(config.llm.provider, "openrouter")
+
+    def test_from_file_openrouter_env_key_fallback(self):
+        """Test that from_file falls back to OPENROUTER_API_KEY for the key."""
+        self._clean_env()
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-from-env"
+
+        with NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump({"llm": {"provider": "openrouter", "model": "google/gemini-2.5-flash"}}, f)
+            temp_path = Path(f.name)
+
+        try:
+            config = Config.from_file(temp_path)
+
+            self.assertEqual(config.llm.provider, "openrouter")
+            self.assertEqual(config.llm.api_key, "sk-or-from-env")
+        finally:
+            temp_path.unlink()
+
     def test_loads_google_api_key(self):
         """Test that GOOGLE_API_KEY is detected."""
         self._clean_env()
@@ -41,6 +79,16 @@ class TestConfigFromEnv(unittest.TestCase):
         self.assertEqual(config.llm.provider, "google")
         self.assertEqual(config.llm.api_key, "test_key_123")
     
+    def test_loads_gemini_api_key(self):
+        """Test that GEMINI_API_KEY is detected (factory parity)."""
+        self._clean_env()
+        os.environ["GEMINI_API_KEY"] = "gemini_key_123"
+
+        config = Config.from_env()
+
+        self.assertEqual(config.llm.provider, "google")
+        self.assertEqual(config.llm.api_key, "gemini_key_123")
+
     def test_loads_openai_api_key(self):
         """Test that OPENAI_API_KEY is detected."""
         self._clean_env()

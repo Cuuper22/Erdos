@@ -50,6 +50,7 @@ class GeminiProvider(LLMProvider):
     ):
         try:
             import google.generativeai as genai
+
             self._genai = genai
         except ImportError:
             raise ImportError(
@@ -57,7 +58,11 @@ class GeminiProvider(LLMProvider):
                 "Install it with: pip install erdos-prover[gemini]"
             )
 
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        self.api_key = (
+            api_key
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+        )
         if not self.api_key:
             raise ValueError(
                 "Gemini API key not provided. Set GEMINI_API_KEY or GOOGLE_API_KEY environment variable "
@@ -85,7 +90,10 @@ class GeminiProvider(LLMProvider):
             if str(code) in error_str:
                 return True
         # Check for common transient error messages
-        if any(kw in error_str for kw in ["rate limit", "quota", "overloaded", "unavailable", "deadline"]):
+        if any(
+            kw in error_str
+            for kw in ["rate limit", "quota", "overloaded", "unavailable", "deadline"]
+        ):
             return True
         return False
 
@@ -117,15 +125,15 @@ class GeminiProvider(LLMProvider):
                     generation_config=generation_config,
                 )
 
-                response_text = response.text if hasattr(response, 'text') else ""
+                response_text = response.text if hasattr(response, "text") else ""
 
                 input_tokens = 0
                 output_tokens = 0
 
-                if hasattr(response, 'usage_metadata'):
+                if hasattr(response, "usage_metadata"):
                     usage = response.usage_metadata
-                    input_tokens = getattr(usage, 'prompt_token_count', 0)
-                    output_tokens = getattr(usage, 'candidates_token_count', 0)
+                    input_tokens = getattr(usage, "prompt_token_count", 0)
+                    output_tokens = getattr(usage, "candidates_token_count", 0)
 
                 # Fallback: estimate tokens if not provided
                 if input_tokens == 0:
@@ -144,7 +152,7 @@ class GeminiProvider(LLMProvider):
                 last_error = e
                 if attempt < self.max_retries and self._is_transient(e):
                     delay = min(
-                        self.BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                        self.BASE_DELAY * (2**attempt) + random.uniform(0, 1),
                         self.MAX_DELAY,
                     )
                     logger.warning(
@@ -156,7 +164,9 @@ class GeminiProvider(LLMProvider):
                 # Non-transient or exhausted retries
                 break
 
-        logger.error(f"Gemini generation failed after {self.max_retries + 1} attempts: {last_error}")
+        logger.error(
+            f"Gemini generation failed after {self.max_retries + 1} attempts: {last_error}"
+        )
         raise GeminiAPIError(
             f"Generation failed: {last_error}",
             status_code=None,

@@ -44,6 +44,7 @@ class OpenAIProvider(LLMProvider):
     ):
         try:
             import openai
+
             self._openai = openai
         except ImportError:
             raise ImportError(
@@ -68,16 +69,22 @@ class OpenAIProvider(LLMProvider):
                 f"Must be one of: {', '.join(sorted(self._VALID_REASONING_EFFORTS))}"
             )
         self.client = self._openai.OpenAI(api_key=self.api_key, timeout=timeout)
-        logger.info(f"Initialized OpenAI provider with model: {model}"
-                     + (f", reasoning_effort: {reasoning_effort}" if reasoning_effort else ""))
+        logger.info(
+            f"Initialized OpenAI provider with model: {model}"
+            + (f", reasoning_effort: {reasoning_effort}" if reasoning_effort else "")
+        )
 
     def _is_transient(self, error: Exception) -> bool:
         """Check if an error is transient and should be retried."""
         # Check openai-specific exception types
-        if hasattr(self._openai, 'RateLimitError') and isinstance(error, self._openai.RateLimitError):
+        if hasattr(self._openai, "RateLimitError") and isinstance(
+            error, self._openai.RateLimitError
+        ):
             return True
-        if hasattr(self._openai, 'APIStatusError') and isinstance(error, self._openai.APIStatusError):
-            return getattr(error, 'status_code', 0) in self._TRANSIENT_STATUS_CODES
+        if hasattr(self._openai, "APIStatusError") and isinstance(
+            error, self._openai.APIStatusError
+        ):
+            return getattr(error, "status_code", 0) in self._TRANSIENT_STATUS_CODES
 
         error_str = str(error).lower()
         if any(kw in error_str for kw in ["rate limit", "overloaded", "unavailable"]):
@@ -110,8 +117,14 @@ class OpenAIProvider(LLMProvider):
                 response = self.client.chat.completions.create(**kwargs)
 
                 response_text = response.choices[0].message.content or ""
-                input_tokens = response.usage.prompt_tokens if response.usage else len(prompt) // 4
-                output_tokens = response.usage.completion_tokens if response.usage else len(response_text) // 4
+                input_tokens = (
+                    response.usage.prompt_tokens if response.usage else len(prompt) // 4
+                )
+                output_tokens = (
+                    response.usage.completion_tokens
+                    if response.usage
+                    else len(response_text) // 4
+                )
 
                 logger.debug(
                     f"Generated {output_tokens} tokens "
@@ -124,7 +137,7 @@ class OpenAIProvider(LLMProvider):
                 last_error = e
                 if attempt < self.max_retries and self._is_transient(e):
                     delay = min(
-                        self.BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                        self.BASE_DELAY * (2**attempt) + random.uniform(0, 1),
                         self.MAX_DELAY,
                     )
                     logger.warning(
@@ -135,10 +148,12 @@ class OpenAIProvider(LLMProvider):
                     continue
                 break
 
-        logger.error(f"OpenAI generation failed after {self.max_retries + 1} attempts: {last_error}")
+        logger.error(
+            f"OpenAI generation failed after {self.max_retries + 1} attempts: {last_error}"
+        )
         raise OpenAIAPIError(
             f"Generation failed: {last_error}",
-            status_code=getattr(last_error, 'status_code', None),
+            status_code=getattr(last_error, "status_code", None),
         ) from last_error
 
     def __repr__(self) -> str:

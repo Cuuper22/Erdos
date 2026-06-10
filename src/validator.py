@@ -11,13 +11,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-
 # ── Banned patterns (errors — proof is invalid) ──
 
 BANNED_PATTERNS = [
     (re.compile(r"\bsorry\b"), "Incomplete proof tactic 'sorry'"),
     (re.compile(r"\badmit\b"), "Incomplete proof tactic 'admit'"),
-    (re.compile(r"\baxiom\b"), "Axiom declaration in proof candidate (potential specification gaming)"),
+    (
+        re.compile(r"\baxiom\b"),
+        "Axiom declaration in proof candidate (potential specification gaming)",
+    ),
     (re.compile(r"\bnative_decide\b"), "Unsafe native_decide tactic"),
     (re.compile(r"#eval\s+.*\bIO\b"), "#eval with IO side effects"),
 ]
@@ -38,14 +40,21 @@ DANGEROUS_IO_PATTERNS = [
 SUSPICIOUS_IMPORTS = [
     (re.compile(r"import\s+System\b"), "Import of System module"),
     (re.compile(r"import\s+IO\.FS\b"), "Import of IO.FS module"),
-    (re.compile(r"import\s+Lean\.Elab\.Command\b"), "Import of Lean.Elab.Command (metaprogramming)"),
-    (re.compile(r"import\s+Lean\.Elab\.Tactic\b"), "Import of Lean.Elab.Tactic (custom tactics)"),
+    (
+        re.compile(r"import\s+Lean\.Elab\.Command\b"),
+        "Import of Lean.Elab.Command (metaprogramming)",
+    ),
+    (
+        re.compile(r"import\s+Lean\.Elab\.Tactic\b"),
+        "Import of Lean.Elab.Tactic (custom tactics)",
+    ),
 ]
 
 
 @dataclass
 class SecurityReport:
     """Detailed security analysis of a proof."""
+
     banned_patterns: list[str] = field(default_factory=list)
     io_violations: list[str] = field(default_factory=list)
     suspicious_imports: list[str] = field(default_factory=list)
@@ -62,6 +71,7 @@ class SecurityReport:
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     is_valid: bool
     errors: list[str]
     warnings: list[str]
@@ -76,45 +86,45 @@ def extract_theorem_statement(content: str, theorem_name: Optional[str] = None) 
     # Strip comment lines to avoid matching 'theorem' in comments
     # like "-- Example theorem with sorry"
     stripped_lines = []
-    for line in content.split('\n'):
-        if line.lstrip().startswith('--'):
-            stripped_lines.append('')
+    for line in content.split("\n"):
+        if line.lstrip().startswith("--"):
+            stripped_lines.append("")
         else:
             stripped_lines.append(line)
-    stripped_content = '\n'.join(stripped_lines)
+    stripped_content = "\n".join(stripped_lines)
 
     if theorem_name:
-        pattern = rf'(?:theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?:='
+        pattern = rf"(?:theorem\s+{re.escape(theorem_name)}|lemma\s+{re.escape(theorem_name)}).*?:="
     else:
-        pattern = r'(?:theorem\s+\w+|lemma\s+\w+).*?:='
+        pattern = r"(?:theorem\s+\w+|lemma\s+\w+).*?:="
 
     match = re.search(pattern, stripped_content, re.DOTALL)
     if match:
         return match.group(0)
 
     # Fallback: line-by-line search
-    lines = content.split('\n')
+    lines = content.split("\n")
     theorem_lines = []
     in_theorem = False
 
     for line in lines:
-        if line.lstrip().startswith('--'):
+        if line.lstrip().startswith("--"):
             continue
-        if re.match(r'\s*(theorem|lemma)\s+\w+', line):
+        if re.match(r"\s*(theorem|lemma)\s+\w+", line):
             in_theorem = True
         if in_theorem:
             theorem_lines.append(line)
-            if ':=' in line or 'where' in line:
+            if ":=" in line or "where" in line:
                 break
 
-    return '\n'.join(theorem_lines)
+    return "\n".join(theorem_lines)
 
 
 def compute_theorem_hash(content: str, theorem_name: Optional[str] = None) -> str:
     """Compute SHA-256 hash of the normalized theorem statement."""
     statement = extract_theorem_statement(content, theorem_name)
-    normalized = ' '.join(statement.split())
-    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+    normalized = " ".join(statement.split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def check_banned_patterns(content: str) -> list[str]:
@@ -196,12 +206,12 @@ def validate_lean_file(file_path: Path) -> ValidationResult:
         errors.append(f"File does not exist: {file_path}")
         return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
 
-    if file_path.suffix != '.lean':
+    if file_path.suffix != ".lean":
         errors.append(f"Not a Lean file: {file_path}")
         return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
 
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = file_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         errors.append(f"Could not read file as UTF-8: {file_path}")
         return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
@@ -225,7 +235,9 @@ class TheoremLocker:
     def __init__(self):
         self._hash_cache: dict[str, str] = {}
 
-    def lock_theorem(self, problem_id: str, content: str, theorem_name: Optional[str] = None) -> str:
+    def lock_theorem(
+        self, problem_id: str, content: str, theorem_name: Optional[str] = None
+    ) -> str:
         """Lock a theorem by computing and storing its hash."""
         cache_key = f"{problem_id}:{theorem_name or 'default'}"
         hash_value = compute_theorem_hash(content, theorem_name)
@@ -233,7 +245,9 @@ class TheoremLocker:
         return hash_value
 
     def verify_theorem(
-        self, problem_id: str, candidate_content: str,
+        self,
+        problem_id: str,
+        candidate_content: str,
         theorem_name: Optional[str] = None,
     ) -> bool:
         """Verify a candidate proof hasn't modified the theorem statement."""
@@ -243,7 +257,9 @@ class TheoremLocker:
         candidate_hash = compute_theorem_hash(candidate_content, theorem_name)
         return self._hash_cache[cache_key] == candidate_hash
 
-    def get_hash(self, problem_id: str, theorem_name: Optional[str] = None) -> Optional[str]:
+    def get_hash(
+        self, problem_id: str, theorem_name: Optional[str] = None
+    ) -> Optional[str]:
         """Get the stored hash for a theorem."""
         cache_key = f"{problem_id}:{theorem_name or 'default'}"
         return self._hash_cache.get(cache_key)

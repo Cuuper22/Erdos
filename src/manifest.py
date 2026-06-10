@@ -28,6 +28,7 @@ DEFAULT_TTL_SECONDS = 3600
 @dataclass
 class ManifestProblem:
     """A problem entry from the manifest."""
+
     id: str
     path: str
     difficulty: str = "Unknown"
@@ -37,6 +38,7 @@ class ManifestProblem:
 @dataclass
 class Manifest:
     """Parsed and validated manifest."""
+
     active_campaign: str = ""
     min_app_version: str = "0.0.0"
     problems: list[ManifestProblem] = field(default_factory=list)
@@ -65,7 +67,9 @@ def _convert_github_url(url: str) -> str:
 
     # Convert github.com blob URLs to raw
     if "github.com" in url and "/blob/" in url:
-        return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+        return url.replace("github.com", "raw.githubusercontent.com").replace(
+            "/blob/", "/"
+        )
 
     # Convert github.com repo URLs to raw (assume manifest.json at root)
     if "github.com" in url and not url.endswith(".json"):
@@ -106,12 +110,14 @@ def parse_manifest(data: dict, source: str = "unknown") -> Manifest:
     """Parse a raw manifest dict into a Manifest object."""
     problems = []
     for p in data.get("priority_problems", []):
-        problems.append(ManifestProblem(
-            id=p["id"],
-            path=p["path"],
-            difficulty=p.get("difficulty", "Unknown"),
-            maintainer_note=p.get("maintainer_note", ""),
-        ))
+        problems.append(
+            ManifestProblem(
+                id=p["id"],
+                path=p["path"],
+                difficulty=p.get("difficulty", "Unknown"),
+                maintainer_note=p.get("maintainer_note", ""),
+            )
+        )
 
     repo = data.get("repository", {})
 
@@ -233,10 +239,12 @@ def merge_manifests(remote: Manifest, local: Manifest) -> Manifest:
 
 class ManifestError(Exception):
     """Error fetching or parsing a manifest."""
+
     pass
 
 
 # ── Internal helpers ──
+
 
 def _fetch_json(url: str) -> dict:
     """Fetch JSON from a URL."""

@@ -19,7 +19,9 @@ def _mock_response(payload: dict) -> Mock:
     return mock_resp
 
 
-def _http_error(code: int, body: bytes = b'{"error": {"message": "boom"}}') -> urllib.error.HTTPError:
+def _http_error(
+    code: int, body: bytes = b'{"error": {"message": "boom"}}'
+) -> urllib.error.HTTPError:
     """Build an HTTPError with a readable body, as urllib raises them."""
     return urllib.error.HTTPError(
         url=OpenRouterProvider.API_URL,
@@ -41,33 +43,33 @@ class TestOpenRouterInit:
 
     def test_init_without_api_key(self):
         """Test OpenRouter provider requires API key."""
-        old = os.environ.pop('OPENROUTER_API_KEY', None)
+        old = os.environ.pop("OPENROUTER_API_KEY", None)
         try:
             with pytest.raises(ValueError, match="OpenRouter API key not provided"):
                 OpenRouterProvider()
         finally:
             if old:
-                os.environ['OPENROUTER_API_KEY'] = old
+                os.environ["OPENROUTER_API_KEY"] = old
 
     def test_init_with_env_key(self):
         """Test OpenRouter provider initialization with OPENROUTER_API_KEY."""
-        with patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-or-env'}):
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-env"}):
             provider = OpenRouterProvider()
-            assert provider.api_key == 'sk-or-env'
-            assert provider.model_name == 'google/gemini-2.5-flash'
+            assert provider.api_key == "sk-or-env"
+            assert provider.model_name == "google/gemini-2.5-flash"
 
     def test_init_with_explicit_key(self):
         """Test OpenRouter provider initialization with explicit key."""
-        provider = OpenRouterProvider(api_key='sk-or-test', model='openai/gpt-4o')
-        assert provider.api_key == 'sk-or-test'
-        assert provider.model_name == 'openai/gpt-4o'
+        provider = OpenRouterProvider(api_key="sk-or-test", model="openai/gpt-4o")
+        assert provider.api_key == "sk-or-test"
+        assert provider.model_name == "openai/gpt-4o"
 
 
 class TestOpenRouterGenerate:
     """Tests for OpenRouterProvider.generate."""
 
     def _make_provider(self, **kwargs):
-        return OpenRouterProvider(api_key='sk-or-test', **kwargs)
+        return OpenRouterProvider(api_key="sk-or-test", **kwargs)
 
     def test_generate_request_payload_shape(self):
         """Test the request URL, headers, and OpenAI-schema body."""
@@ -75,21 +77,21 @@ class TestOpenRouterGenerate:
         captured = {}
 
         def fake_urlopen(req, timeout=None):
-            captured['req'] = req
-            captured['timeout'] = timeout
+            captured["req"] = req
+            captured["timeout"] = timeout
             return _mock_response(_SUCCESS_PAYLOAD)
 
-        with patch('urllib.request.urlopen', side_effect=fake_urlopen):
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
             provider.generate("prove this", temperature=0.3, max_tokens=512)
 
-        req = captured['req']
+        req = captured["req"]
         assert req.full_url == "https://openrouter.ai/api/v1/chat/completions"
         assert req.get_method() == "POST"
         # urllib normalizes header names via str.capitalize()
-        assert req.get_header('Authorization') == 'Bearer sk-or-test'
-        assert req.get_header('Content-type') == 'application/json'
-        assert req.get_header('Http-referer') == 'https://github.com/Cuuper22/Erdos'
-        assert req.get_header('X-title') == 'Erdos'
+        assert req.get_header("Authorization") == "Bearer sk-or-test"
+        assert req.get_header("Content-type") == "application/json"
+        assert req.get_header("Http-referer") == "https://github.com/Cuuper22/Erdos"
+        assert req.get_header("X-title") == "Erdos"
 
         body = json.loads(req.data.decode("utf-8"))
         assert body["model"] == "google/gemini-2.5-flash"
@@ -101,7 +103,9 @@ class TestOpenRouterGenerate:
         """Test generate with mocked HTTP success."""
         provider = self._make_provider()
 
-        with patch('urllib.request.urlopen', return_value=_mock_response(_SUCCESS_PAYLOAD)):
+        with patch(
+            "urllib.request.urlopen", return_value=_mock_response(_SUCCESS_PAYLOAD)
+        ):
             response, in_tokens, out_tokens = provider.generate("test")
 
         assert response == "proof by simp"
@@ -113,8 +117,10 @@ class TestOpenRouterGenerate:
         provider = self._make_provider()
         payload = {"choices": [{"message": {"content": "a proof, twenty chars"}}]}
 
-        with patch('urllib.request.urlopen', return_value=_mock_response(payload)):
-            response, in_tokens, out_tokens = provider.generate("a prompt of some length")
+        with patch("urllib.request.urlopen", return_value=_mock_response(payload)):
+            response, in_tokens, out_tokens = provider.generate(
+                "a prompt of some length"
+            )
 
         assert response == "a proof, twenty chars"
         assert in_tokens > 0
@@ -124,7 +130,9 @@ class TestOpenRouterGenerate:
         """Test generate returns empty text when choices are missing."""
         provider = self._make_provider()
 
-        with patch('urllib.request.urlopen', return_value=_mock_response({"choices": []})):
+        with patch(
+            "urllib.request.urlopen", return_value=_mock_response({"choices": []})
+        ):
             response, _, _ = provider.generate("test")
 
         assert response == ""
@@ -133,12 +141,15 @@ class TestOpenRouterGenerate:
         """Test transient HTTP errors (429, 503) are retried."""
         provider = self._make_provider(max_retries=3)
 
-        with patch('urllib.request.urlopen', side_effect=[
-            _http_error(429),
-            _http_error(503),
-            _mock_response(_SUCCESS_PAYLOAD),
-        ]) as mock_urlopen:
-            with patch('src.llm.openrouter_provider.time.sleep'):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[
+                _http_error(429),
+                _http_error(503),
+                _mock_response(_SUCCESS_PAYLOAD),
+            ],
+        ) as mock_urlopen:
+            with patch("src.llm.openrouter_provider.time.sleep"):
                 response, _, _ = provider.generate("test")
 
         assert response == "proof by simp"
@@ -148,9 +159,13 @@ class TestOpenRouterGenerate:
         """Test exhausting retries raises OpenRouterAPIError."""
         provider = self._make_provider(max_retries=2)
 
-        with patch('urllib.request.urlopen', side_effect=_http_error(503)) as mock_urlopen:
-            with patch('src.llm.openrouter_provider.time.sleep'):
-                with pytest.raises(OpenRouterAPIError, match="Generation failed") as exc_info:
+        with patch(
+            "urllib.request.urlopen", side_effect=_http_error(503)
+        ) as mock_urlopen:
+            with patch("src.llm.openrouter_provider.time.sleep"):
+                with pytest.raises(
+                    OpenRouterAPIError, match="Generation failed"
+                ) as exc_info:
                     provider.generate("test")
 
         # 1 initial + 2 retries = 3 total
@@ -161,8 +176,12 @@ class TestOpenRouterGenerate:
         """Test non-transient errors (400) raise immediately without retry."""
         provider = self._make_provider(max_retries=2)
 
-        with patch('urllib.request.urlopen', side_effect=_http_error(400)) as mock_urlopen:
-            with pytest.raises(OpenRouterAPIError, match="Generation failed") as exc_info:
+        with patch(
+            "urllib.request.urlopen", side_effect=_http_error(400)
+        ) as mock_urlopen:
+            with pytest.raises(
+                OpenRouterAPIError, match="Generation failed"
+            ) as exc_info:
                 provider.generate("test")
 
         # Should NOT retry — only 1 call
@@ -173,7 +192,10 @@ class TestOpenRouterGenerate:
         """Test connection failures raise OpenRouterAPIError."""
         provider = self._make_provider(max_retries=1)
 
-        with patch('urllib.request.urlopen', side_effect=urllib.error.URLError("Connection refused")):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("Connection refused"),
+        ):
             with pytest.raises(OpenRouterAPIError, match="Generation failed"):
                 provider.generate("test")
 
@@ -181,7 +203,16 @@ class TestOpenRouterGenerate:
 class TestOpenRouterFactory:
     """Tests for OpenRouter creation via the provider factory."""
 
-    _SYSTEM_KEYS = {"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
+    _SYSTEM_KEYS = {
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+    }
 
     def _clean_env(self):
         """Clear env but preserve system-critical keys."""
@@ -193,6 +224,7 @@ class TestOpenRouterFactory:
         """Test factory creates OpenRouterProvider from explicit config."""
         from src.llm.factory import create_provider
         from src.config import Config
+
         config = Config()
         config.llm.provider = "openrouter"
         config.llm.api_key = "sk-or-test"
@@ -204,6 +236,7 @@ class TestOpenRouterFactory:
     def test_factory_auto_detects_openrouter(self):
         """Test factory auto-detects OPENROUTER_API_KEY."""
         from src.llm.factory import create_provider
+
         original_env = os.environ.copy()
         self._clean_env()
         try:
@@ -221,5 +254,7 @@ class TestOpenRouterRepr:
 
     def test_repr(self):
         """Test string representation."""
-        provider = OpenRouterProvider(api_key='sk-or-test', model='google/gemini-2.5-flash')
+        provider = OpenRouterProvider(
+            api_key="sk-or-test", model="google/gemini-2.5-flash"
+        )
         assert repr(provider) == "OpenRouterProvider(model=google/gemini-2.5-flash)"

@@ -21,6 +21,7 @@ HISTORY_FILENAME = "history.json"
 @dataclass
 class AttemptRecord:
     """Record of a single problem attempt."""
+
     timestamp: str
     result: str  # "solved", "failed", "skipped"
     attempts: int = 0
@@ -31,6 +32,7 @@ class AttemptRecord:
 @dataclass
 class ProblemHistory:
     """History for a single problem."""
+
     problem_id: str
     solved: bool = False
     total_attempts: int = 0

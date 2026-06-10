@@ -159,7 +159,9 @@ class TestExtractSolution:
 
         extract_dir = tmp_path / "extracted"
         extract_dir.mkdir()
-        result = extract_solution("prob-01", extract_to=extract_dir, output_dir=tmp_path)
+        result = extract_solution(
+            "prob-01", extract_to=extract_dir, output_dir=tmp_path
+        )
 
         assert result is not None
         assert (result / "proof.lean").exists()

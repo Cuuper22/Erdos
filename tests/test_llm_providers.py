@@ -14,6 +14,7 @@ from src.llm.gemini import GeminiAPIError
 # Skip SDK-backed tests when it isn't installed.
 try:
     import google.generativeai  # noqa: F401
+
     _HAS_GEMINI_SDK = True
 except ImportError:
     _HAS_GEMINI_SDK = False
@@ -25,20 +26,22 @@ requires_gemini_sdk = pytest.mark.skipif(
 # Create mock modules for optional SDKs so tests work without them installed
 _mock_openai = MagicMock()
 _mock_openai.OpenAI = MagicMock
-_mock_openai.RateLimitError = type('RateLimitError', (Exception,), {})
-_mock_openai.APIStatusError = type('APIStatusError', (Exception,), {'status_code': 500})
+_mock_openai.RateLimitError = type("RateLimitError", (Exception,), {})
+_mock_openai.APIStatusError = type("APIStatusError", (Exception,), {"status_code": 500})
 
 _mock_anthropic = MagicMock()
 _mock_anthropic.Anthropic = MagicMock
-_mock_anthropic.RateLimitError = type('RateLimitError', (Exception,), {})
-_mock_anthropic.OverloadedError = type('OverloadedError', (Exception,), {})
-_mock_anthropic.APIStatusError = type('APIStatusError', (Exception,), {'status_code': 500})
+_mock_anthropic.RateLimitError = type("RateLimitError", (Exception,), {})
+_mock_anthropic.OverloadedError = type("OverloadedError", (Exception,), {})
+_mock_anthropic.APIStatusError = type(
+    "APIStatusError", (Exception,), {"status_code": 500}
+)
 
 # Inject mock modules if real ones aren't installed
-if 'openai' not in sys.modules:
-    sys.modules['openai'] = _mock_openai
-if 'anthropic' not in sys.modules:
-    sys.modules['anthropic'] = _mock_anthropic
+if "openai" not in sys.modules:
+    sys.modules["openai"] = _mock_openai
+if "anthropic" not in sys.modules:
+    sys.modules["anthropic"] = _mock_anthropic
 
 from src.llm.openai_provider import OpenAIProvider, OpenAIAPIError
 from src.llm.anthropic_provider import AnthropicProvider, AnthropicAPIError
@@ -72,48 +75,48 @@ class TestGeminiProvider:
 
     def test_gemini_init_without_api_key(self):
         """Test Gemini provider requires API key."""
-        old_gemini = os.environ.pop('GEMINI_API_KEY', None)
-        old_google = os.environ.pop('GOOGLE_API_KEY', None)
+        old_gemini = os.environ.pop("GEMINI_API_KEY", None)
+        old_google = os.environ.pop("GOOGLE_API_KEY", None)
 
         try:
             with pytest.raises(ValueError, match="Gemini API key not provided"):
                 GeminiProvider()
         finally:
             if old_gemini:
-                os.environ['GEMINI_API_KEY'] = old_gemini
+                os.environ["GEMINI_API_KEY"] = old_gemini
             if old_google:
-                os.environ['GOOGLE_API_KEY'] = old_google
+                os.environ["GOOGLE_API_KEY"] = old_google
 
     def test_gemini_init_with_gemini_api_key_env(self):
         """Test Gemini provider initialization with GEMINI_API_KEY."""
-        with patch.dict(os.environ, {'GEMINI_API_KEY': 'test-key'}):
-            with patch('google.generativeai.configure'):
-                with patch('google.generativeai.GenerativeModel') as mock_model:
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
+            with patch("google.generativeai.configure"):
+                with patch("google.generativeai.GenerativeModel") as mock_model:
                     provider = GeminiProvider()
-                    assert provider.api_key == 'test-key'
-                    assert provider.model_name == 'gemini-3-flash'
+                    assert provider.api_key == "test-key"
+                    assert provider.model_name == "gemini-3-flash"
 
     def test_gemini_init_with_google_api_key_env(self):
         """Test Gemini provider initialization with GOOGLE_API_KEY."""
-        os.environ.pop('GEMINI_API_KEY', None)
-        with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-google-key'}):
-            with patch('google.generativeai.configure'):
-                with patch('google.generativeai.GenerativeModel') as mock_model:
+        os.environ.pop("GEMINI_API_KEY", None)
+        with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-google-key"}):
+            with patch("google.generativeai.configure"):
+                with patch("google.generativeai.GenerativeModel") as mock_model:
                     provider = GeminiProvider()
-                    assert provider.api_key == 'test-google-key'
+                    assert provider.api_key == "test-google-key"
 
     def test_gemini_init_with_explicit_key(self):
         """Test Gemini provider initialization with explicit API key."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel') as mock_model:
-                provider = GeminiProvider(api_key='explicit-key', model='gemini-pro')
-                assert provider.api_key == 'explicit-key'
-                assert provider.model_name == 'gemini-pro'
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel") as mock_model:
+                provider = GeminiProvider(api_key="explicit-key", model="gemini-pro")
+                assert provider.api_key == "explicit-key"
+                assert provider.model_name == "gemini-pro"
 
     def test_gemini_generate_mock_response(self):
         """Test Gemini generate method with mocked response."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel') as mock_model_class:
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel") as mock_model_class:
                 mock_response = Mock()
                 mock_response.text = "theorem proof here"
                 mock_response.usage_metadata = Mock()
@@ -124,7 +127,7 @@ class TestGeminiProvider:
                 mock_model.generate_content.return_value = mock_response
                 mock_model_class.return_value = mock_model
 
-                provider = GeminiProvider(api_key='test-key')
+                provider = GeminiProvider(api_key="test-key")
                 response, in_tokens, out_tokens = provider.generate("test prompt")
 
                 assert response == "theorem proof here"
@@ -133,16 +136,16 @@ class TestGeminiProvider:
 
     def test_gemini_generate_without_usage_metadata(self):
         """Test Gemini provider estimates tokens when metadata unavailable."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel') as mock_model_class:
-                mock_response = Mock(spec=['text'])
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel") as mock_model_class:
+                mock_response = Mock(spec=["text"])
                 mock_response.text = "response text"
 
                 mock_model = Mock()
                 mock_model.generate_content.return_value = mock_response
                 mock_model_class.return_value = mock_model
 
-                provider = GeminiProvider(api_key='test-key')
+                provider = GeminiProvider(api_key="test-key")
                 response, in_tokens, out_tokens = provider.generate("test prompt")
 
                 assert response == "response text"
@@ -151,13 +154,13 @@ class TestGeminiProvider:
 
     def test_gemini_generate_raises_on_non_transient_error(self):
         """Test that non-transient errors raise GeminiAPIError immediately."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel') as mock_model_class:
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel") as mock_model_class:
                 mock_model = Mock()
                 mock_model.generate_content.side_effect = Exception("Invalid API key")
                 mock_model_class.return_value = mock_model
 
-                provider = GeminiProvider(api_key='test-key', max_retries=2)
+                provider = GeminiProvider(api_key="test-key", max_retries=2)
 
                 with pytest.raises(GeminiAPIError, match="Generation failed"):
                     provider.generate("test prompt")
@@ -167,8 +170,8 @@ class TestGeminiProvider:
 
     def test_gemini_generate_retries_transient_errors(self):
         """Test that transient errors (429, 503) are retried."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel') as mock_model_class:
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel") as mock_model_class:
                 mock_response = Mock()
                 mock_response.text = "success"
                 mock_response.usage_metadata = Mock()
@@ -184,9 +187,9 @@ class TestGeminiProvider:
                 ]
                 mock_model_class.return_value = mock_model
 
-                provider = GeminiProvider(api_key='test-key', max_retries=3)
+                provider = GeminiProvider(api_key="test-key", max_retries=3)
                 # Patch sleep to avoid actual delays in tests
-                with patch('src.llm.gemini.time.sleep'):
+                with patch("src.llm.gemini.time.sleep"):
                     response, in_tokens, out_tokens = provider.generate("test")
 
                 assert response == "success"
@@ -194,15 +197,17 @@ class TestGeminiProvider:
 
     def test_gemini_generate_exhausts_retries(self):
         """Test that exhausting retries raises GeminiAPIError."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel') as mock_model_class:
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel") as mock_model_class:
                 mock_model = Mock()
-                mock_model.generate_content.side_effect = Exception("429 rate limit exceeded")
+                mock_model.generate_content.side_effect = Exception(
+                    "429 rate limit exceeded"
+                )
                 mock_model_class.return_value = mock_model
 
-                provider = GeminiProvider(api_key='test-key', max_retries=2)
+                provider = GeminiProvider(api_key="test-key", max_retries=2)
 
-                with patch('src.llm.gemini.time.sleep'):
+                with patch("src.llm.gemini.time.sleep"):
                     with pytest.raises(GeminiAPIError):
                         provider.generate("test")
 
@@ -211,14 +216,15 @@ class TestGeminiProvider:
 
     def test_gemini_repr(self):
         """Test string representation of Gemini provider."""
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel'):
-                provider = GeminiProvider(api_key='test-key', model='gemini-pro')
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel"):
+                provider = GeminiProvider(api_key="test-key", model="gemini-pro")
                 assert repr(provider) == "GeminiProvider(model=gemini-pro)"
 
     def test_google_provider_alias(self):
         """Test that GoogleProvider is an alias for GeminiProvider."""
         from src.llm.gemini import GoogleProvider
+
         assert GoogleProvider is GeminiProvider
 
 
@@ -228,10 +234,10 @@ class TestGeminiMissingSDK:
     def test_gemini_init_without_sdk_raises_helpful_error(self, monkeypatch):
         """Test GeminiProvider explains how to install the optional SDK."""
         # Simulate an uninstalled SDK: a None entry makes the import fail
-        monkeypatch.setitem(sys.modules, 'google.generativeai', None)
+        monkeypatch.setitem(sys.modules, "google.generativeai", None)
 
         with pytest.raises(ImportError, match=r"pip install erdos-prover\[gemini\]"):
-            GeminiProvider(api_key='test-key')
+            GeminiProvider(api_key="test-key")
 
 
 class TestOpenAIProvider:
@@ -240,25 +246,25 @@ class TestOpenAIProvider:
     def _make_provider(self, **kwargs):
         """Helper to create an OpenAIProvider with mocked openai client."""
         mock_client = Mock()
-        with patch.object(sys.modules['openai'], 'OpenAI', return_value=mock_client):
-            provider = OpenAIProvider(api_key='sk-test', **kwargs)
+        with patch.object(sys.modules["openai"], "OpenAI", return_value=mock_client):
+            provider = OpenAIProvider(api_key="sk-test", **kwargs)
         return provider, mock_client
 
     def test_openai_init_without_api_key(self):
         """Test OpenAI provider requires API key."""
-        old = os.environ.pop('OPENAI_API_KEY', None)
+        old = os.environ.pop("OPENAI_API_KEY", None)
         try:
             with pytest.raises(ValueError, match="OpenAI API key not provided"):
                 OpenAIProvider()
         finally:
             if old:
-                os.environ['OPENAI_API_KEY'] = old
+                os.environ["OPENAI_API_KEY"] = old
 
     def test_openai_init_with_explicit_key(self):
         """Test OpenAI provider initialization with explicit key."""
-        provider, _ = self._make_provider(model='gpt-4')
-        assert provider.api_key == 'sk-test'
-        assert provider.model_name == 'gpt-4'
+        provider, _ = self._make_provider(model="gpt-4")
+        assert provider.api_key == "sk-test"
+        assert provider.model_name == "gpt-4"
 
     def test_openai_generate_mock_response(self):
         """Test OpenAI generate with mocked response."""
@@ -308,7 +314,7 @@ class TestOpenAIProvider:
             mock_response,
         ]
 
-        with patch('src.llm.openai_provider.time.sleep'):
+        with patch("src.llm.openai_provider.time.sleep"):
             response, _, _ = provider.generate("test")
 
         assert response == "ok"
@@ -316,7 +322,7 @@ class TestOpenAIProvider:
 
     def test_openai_repr(self):
         """Test string representation."""
-        provider, _ = self._make_provider(model='gpt-4o')
+        provider, _ = self._make_provider(model="gpt-4o")
         assert repr(provider) == "OpenAIProvider(model=gpt-4o)"
 
 
@@ -326,25 +332,27 @@ class TestAnthropicProvider:
     def _make_provider(self, **kwargs):
         """Helper to create an AnthropicProvider with mocked client."""
         mock_client = Mock()
-        with patch.object(sys.modules['anthropic'], 'Anthropic', return_value=mock_client):
-            provider = AnthropicProvider(api_key='sk-ant-test', **kwargs)
+        with patch.object(
+            sys.modules["anthropic"], "Anthropic", return_value=mock_client
+        ):
+            provider = AnthropicProvider(api_key="sk-ant-test", **kwargs)
         return provider, mock_client
 
     def test_anthropic_init_without_api_key(self):
         """Test Anthropic provider requires API key."""
-        old = os.environ.pop('ANTHROPIC_API_KEY', None)
+        old = os.environ.pop("ANTHROPIC_API_KEY", None)
         try:
             with pytest.raises(ValueError, match="Anthropic API key not provided"):
                 AnthropicProvider()
         finally:
             if old:
-                os.environ['ANTHROPIC_API_KEY'] = old
+                os.environ["ANTHROPIC_API_KEY"] = old
 
     def test_anthropic_init_with_explicit_key(self):
         """Test Anthropic provider initialization."""
-        provider, _ = self._make_provider(model='claude-haiku-4-5-20251001')
-        assert provider.api_key == 'sk-ant-test'
-        assert provider.model_name == 'claude-haiku-4-5-20251001'
+        provider, _ = self._make_provider(model="claude-haiku-4-5-20251001")
+        assert provider.api_key == "sk-ant-test"
+        assert provider.model_name == "claude-haiku-4-5-20251001"
 
     def test_anthropic_generate_mock_response(self):
         """Test Anthropic generate with mocked response."""
@@ -396,7 +404,7 @@ class TestAnthropicProvider:
             mock_response,
         ]
 
-        with patch('src.llm.anthropic_provider.time.sleep'):
+        with patch("src.llm.anthropic_provider.time.sleep"):
             response, _, _ = provider.generate("test")
 
         assert response == "ok"
@@ -405,7 +413,10 @@ class TestAnthropicProvider:
     def test_anthropic_repr(self):
         """Test string representation."""
         provider, _ = self._make_provider()
-        assert repr(provider) == f"AnthropicProvider(model={AnthropicProvider.DEFAULT_MODEL})"
+        assert (
+            repr(provider)
+            == f"AnthropicProvider(model={AnthropicProvider.DEFAULT_MODEL})"
+        )
 
 
 class TestOllamaProvider:
@@ -414,6 +425,7 @@ class TestOllamaProvider:
     def test_ollama_init(self):
         """Test Ollama provider initialization."""
         from src.llm.ollama_provider import OllamaProvider
+
         provider = OllamaProvider(model="codellama", base_url="http://localhost:11434")
         assert provider.model_name == "codellama"
         assert provider.base_url == "http://localhost:11434"
@@ -421,20 +433,23 @@ class TestOllamaProvider:
     def test_ollama_generate_mock_response(self):
         """Test Ollama generate with mocked HTTP."""
         from src.llm.ollama_provider import OllamaProvider
+
         provider = OllamaProvider()
 
-        mock_data = json.dumps({
-            "response": "proof by induction",
-            "prompt_eval_count": 25,
-            "eval_count": 40,
-        }).encode("utf-8")
+        mock_data = json.dumps(
+            {
+                "response": "proof by induction",
+                "prompt_eval_count": 25,
+                "eval_count": 40,
+            }
+        ).encode("utf-8")
 
         mock_resp = Mock()
         mock_resp.read.return_value = mock_data
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = Mock(return_value=False)
 
-        with patch('urllib.request.urlopen', return_value=mock_resp):
+        with patch("urllib.request.urlopen", return_value=mock_resp):
             response, in_tokens, out_tokens = provider.generate("test")
 
         assert response == "proof by induction"
@@ -444,15 +459,20 @@ class TestOllamaProvider:
     def test_ollama_connection_error(self):
         """Test Ollama raises on connection failure."""
         from src.llm.ollama_provider import OllamaProvider, OllamaAPIError
+
         provider = OllamaProvider(base_url="http://localhost:99999")
 
-        with patch('urllib.request.urlopen', side_effect=urllib.error.URLError("Connection refused")):
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("Connection refused"),
+        ):
             with pytest.raises(OllamaAPIError, match="Cannot connect"):
                 provider.generate("test")
 
     def test_ollama_repr(self):
         """Test string representation."""
         from src.llm.ollama_provider import OllamaProvider
+
         provider = OllamaProvider(model="llama3.2", base_url="http://localhost:11434")
         assert "OllamaProvider" in repr(provider)
         assert "llama3.2" in repr(provider)
@@ -461,7 +481,16 @@ class TestOllamaProvider:
 class TestProviderFactory:
     """Tests for create_provider factory."""
 
-    _SYSTEM_KEYS = {"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
+    _SYSTEM_KEYS = {
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+    }
 
     def _clean_env(self):
         """Clear env but preserve system-critical keys."""
@@ -472,6 +501,7 @@ class TestProviderFactory:
     def test_factory_returns_mock_in_mock_mode(self):
         """Test factory returns MockLLMProvider when ERDOS_MOCK_MODE is set."""
         from src.llm.factory import create_provider
+
         self._clean_env()
         os.environ["ERDOS_MOCK_MODE"] = "1"
         provider = create_provider()
@@ -481,10 +511,11 @@ class TestProviderFactory:
     def test_factory_auto_detects_gemini(self):
         """Test factory auto-detects GEMINI_API_KEY."""
         from src.llm.factory import create_provider
+
         self._clean_env()
         os.environ["GEMINI_API_KEY"] = "test-key"
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel'):
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel"):
                 provider = create_provider()
         assert isinstance(provider, GeminiProvider)
 
@@ -493,18 +524,20 @@ class TestProviderFactory:
         """Test factory creates provider from explicit config."""
         from src.llm.factory import create_provider
         from src.config import Config
+
         config = Config()
         config.llm.provider = "google"
         config.llm.api_key = "test-key"
         config.llm.model = "gemini-3-flash"
-        with patch('google.generativeai.configure'):
-            with patch('google.generativeai.GenerativeModel'):
+        with patch("google.generativeai.configure"):
+            with patch("google.generativeai.GenerativeModel"):
                 provider = create_provider(config)
         assert isinstance(provider, GeminiProvider)
 
     def test_factory_fallback_to_mock(self):
         """Test factory falls back to MockLLMProvider when no provider available."""
         from src.llm.factory import create_provider
+
         self._clean_env()
         provider = create_provider()
         assert isinstance(provider, MockLLMProvider)

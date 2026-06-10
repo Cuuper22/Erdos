@@ -19,27 +19,36 @@ class TestEnvironmentStatus:
 
     def test_is_ready_when_all_installed(self):
         status = EnvironmentStatus(
-            elan_installed=True, elan_version="1.0",
-            lean_installed=True, lean_version="4.3.0",
-            lake_installed=True, lake_version="4.3.0",
+            elan_installed=True,
+            elan_version="1.0",
+            lean_installed=True,
+            lean_version="4.3.0",
+            lake_installed=True,
+            lake_version="4.3.0",
             app_dir=Path("/tmp"),
         )
         assert status.is_ready()
 
     def test_not_ready_when_lean_missing(self):
         status = EnvironmentStatus(
-            elan_installed=True, elan_version="1.0",
-            lean_installed=False, lean_version=None,
-            lake_installed=True, lake_version="4.3.0",
+            elan_installed=True,
+            elan_version="1.0",
+            lean_installed=False,
+            lean_version=None,
+            lake_installed=True,
+            lake_version="4.3.0",
             app_dir=Path("/tmp"),
         )
         assert not status.is_ready()
 
     def test_not_ready_when_elan_missing(self):
         status = EnvironmentStatus(
-            elan_installed=False, elan_version=None,
-            lean_installed=False, lean_version=None,
-            lake_installed=False, lake_version=None,
+            elan_installed=False,
+            elan_version=None,
+            lean_installed=False,
+            lean_version=None,
+            lake_installed=False,
+            lake_version=None,
             app_dir=Path("/tmp"),
         )
         assert not status.is_ready()
@@ -264,6 +273,7 @@ class TestVerifyChecksum:
         test_file.write_bytes(b"hello world")
 
         import hashlib
+
         expected = hashlib.sha256(b"hello world").hexdigest()
         assert _verify_checksum(test_file, expected)
 

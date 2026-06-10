@@ -45,6 +45,7 @@ hidden_imports = [
     'src.llm.openai_provider',
     'src.llm.anthropic_provider',
     'src.llm.chatgpt_provider',
+    'src.llm.openrouter_provider',
     'src.llm.gemini',
     'src.llm.ollama_provider',
     # Third-party with dynamic imports

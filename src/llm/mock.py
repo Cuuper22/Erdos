@@ -5,12 +5,9 @@ from .base import LLMProvider
 
 class MockLLMProvider(LLMProvider):
     """Mock LLM provider for testing."""
-    
+
     def generate(
-        self,
-        prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4096
+        self, prompt: str, temperature: float = 0.7, max_tokens: int = 4096
     ) -> tuple[str, int, int]:
         """Return a mock response."""
         # Simple mock that tries to generate a basic proof

@@ -51,15 +51,17 @@ class OllamaProvider(LLMProvider):
         """Generate a response using local Ollama."""
         url = f"{self.base_url}/api/generate"
 
-        payload = json.dumps({
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            },
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "model": self.model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+        ).encode("utf-8")
 
         req = urllib.request.Request(
             url,

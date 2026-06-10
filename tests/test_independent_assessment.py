@@ -42,14 +42,14 @@ class TestTheoremIntegrity_IndependentVerification(unittest.TestCase):
     def test_subtle_modification_detected(self):
         """Core claim: changing '1+1=2' to '1+1=3' must be caught."""
         original = "theorem foo : 1 + 1 = 2 := by sorry"
-        cheated  = "theorem foo : 1 + 1 = 3 := by rfl"
+        cheated = "theorem foo : 1 + 1 = 3 := by rfl"
         result = validate_theorem_integrity(original, cheated)
         self.assertFalse(result.is_valid, "Failed to detect theorem modification!")
 
     def test_renaming_theorem_detected(self):
         """Renaming the theorem should be caught."""
         original = "theorem foo : True := by trivial"
-        cheated  = "theorem bar : True := by trivial"
+        cheated = "theorem bar : True := by trivial"
         h1 = compute_theorem_hash(original)
         h2 = compute_theorem_hash(cheated)
         self.assertNotEqual(h1, h2, "Renaming theorem was not detected!")
@@ -64,20 +64,20 @@ class TestTheoremIntegrity_IndependentVerification(unittest.TestCase):
 
         # Also verify what the normalized form looks like
         stmt = extract_theorem_statement(code2)
-        normalized = ' '.join(stmt.split())
-        self.assertNotIn('   ', normalized, "Normalization left multi-spaces")
+        normalized = " ".join(stmt.split())
+        self.assertNotIn("   ", normalized, "Normalization left multi-spaces")
 
     def test_adding_hypothesis_detected(self):
         """Adding an extra hypothesis should be caught."""
         original = "theorem foo (n : Nat) : n + 0 = n := by sorry"
-        cheated  = "theorem foo (n : Nat) (h : n = 0) : n + 0 = n := by exact h ▸ rfl"
+        cheated = "theorem foo (n : Nat) (h : n = 0) : n + 0 = n := by exact h ▸ rfl"
         result = validate_theorem_integrity(original, cheated)
         self.assertFalse(result.is_valid, "Adding hypothesis not detected!")
 
     def test_weakening_conclusion_detected(self):
         """Weakening the conclusion should be caught."""
         original = "theorem foo : ∀ n : Nat, n + 0 = n := by sorry"
-        cheated  = "theorem foo : True := by trivial"
+        cheated = "theorem foo : True := by trivial"
         result = validate_theorem_integrity(original, cheated)
         self.assertFalse(result.is_valid, "Weakened conclusion not detected!")
 
@@ -129,7 +129,7 @@ where
         """TheoremLocker: modified theorem fails verification."""
         locker = TheoremLocker()
         original = "theorem foo : 1 + 1 = 2 := by sorry"
-        cheated  = "theorem foo : 1 + 1 = 3 := by rfl"
+        cheated = "theorem foo : 1 + 1 = 3 := by rfl"
         locker.lock_theorem("P001", original)
         self.assertFalse(locker.verify_theorem("P001", cheated))
 
@@ -170,8 +170,9 @@ class TestSecurityScanning_IndependentVerification(unittest.TestCase):
         should never introduce new axioms."""
         errors = check_banned_patterns("axiom myAxiom : Prop")
         axiom_errors = [e for e in errors if "axiom" in e.lower()]
-        self.assertTrue(len(axiom_errors) > 0,
-                        "Axiom declaration in proof candidate must be caught")
+        self.assertTrue(
+            len(axiom_errors) > 0, "Axiom declaration in proof candidate must be caught"
+        )
 
     def test_axiom_usage_flagged(self):
         """All forms of axiom usage should be flagged."""
@@ -191,7 +192,10 @@ class TestSecurityScanning_IndependentVerification(unittest.TestCase):
         """A legitimate proof should pass all security checks."""
         clean = "theorem foo : 1 + 1 = 2 := by omega"
         report = run_security_check(clean)
-        self.assertTrue(report.is_safe, f"Clean proof falsely flagged: {report.banned_patterns + report.io_violations}")
+        self.assertTrue(
+            report.is_safe,
+            f"Clean proof falsely flagged: {report.banned_patterns + report.io_violations}",
+        )
 
     def test_native_decide_flagged(self):
         errors = check_banned_patterns("theorem foo : True := by native_decide")
@@ -209,12 +213,20 @@ class TestBuildResult_IndependentVerification(unittest.TestCase):
     """Test BuildResult — previously untested."""
 
     def test_successful_build_summary(self):
-        r = BuildResult(success=True, stdout="ok", stderr="", return_code=0, duration_seconds=1.0)
+        r = BuildResult(
+            success=True, stdout="ok", stderr="", return_code=0, duration_seconds=1.0
+        )
         self.assertEqual(r.get_error_summary(), "Build successful")
 
     def test_timeout_summary(self):
-        r = BuildResult(success=False, stdout="", stderr="", return_code=-1,
-                        duration_seconds=60.0, timeout_occurred=True)
+        r = BuildResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            duration_seconds=60.0,
+            timeout_occurred=True,
+        )
         self.assertEqual(r.get_error_summary(), "Build timed out")
 
     def test_error_lines_extracted(self):
@@ -224,7 +236,9 @@ class TestBuildResult_IndependentVerification(unittest.TestCase):
 some other info
 /tmp/sandbox/Test.lean:15:6: error: expected token
 """
-        r = BuildResult(success=False, stdout="", stderr=stderr, return_code=1, duration_seconds=2.0)
+        r = BuildResult(
+            success=False, stdout="", stderr=stderr, return_code=1, duration_seconds=2.0
+        )
         summary = r.get_error_summary()
         self.assertIn("unknown identifier", summary)
         self.assertIn("type mismatch", summary)
@@ -233,7 +247,9 @@ some other info
     def test_error_lines_capped_at_5(self):
         lines = [f"/tmp/Test.lean:{i}:0: error: err{i}" for i in range(10)]
         stderr = "\n".join(lines)
-        r = BuildResult(success=False, stdout="", stderr=stderr, return_code=1, duration_seconds=2.0)
+        r = BuildResult(
+            success=False, stdout="", stderr=stderr, return_code=1, duration_seconds=2.0
+        )
         summary = r.get_error_summary()
         # Should only show first 5
         self.assertIn("err0", summary)
@@ -241,13 +257,20 @@ some other info
         self.assertNotIn("err5", summary)
 
     def test_fallback_when_no_error_keyword(self):
-        r = BuildResult(success=False, stdout="", stderr="something went wrong",
-                        return_code=1, duration_seconds=1.0)
+        r = BuildResult(
+            success=False,
+            stdout="",
+            stderr="something went wrong",
+            return_code=1,
+            duration_seconds=1.0,
+        )
         summary = r.get_error_summary()
         self.assertEqual(summary, "something went wrong")
 
     def test_empty_stderr_returns_unknown(self):
-        r = BuildResult(success=False, stdout="", stderr="", return_code=1, duration_seconds=1.0)
+        r = BuildResult(
+            success=False, stdout="", stderr="", return_code=1, duration_seconds=1.0
+        )
         summary = r.get_error_summary()
         self.assertEqual(summary, "Unknown error")
 
@@ -336,7 +359,7 @@ class TestRunLakeBuild_IndependentVerification(unittest.TestCase):
             # Should mention lake not found OR fail gracefully
             self.assertTrue(
                 "not found" in result.stderr.lower() or result.return_code != 0,
-                f"Unexpected stderr: {result.stderr}"
+                f"Unexpected stderr: {result.stderr}",
             )
 
 
@@ -345,8 +368,13 @@ class TestRunLakeBuild_IndependentVerification(unittest.TestCase):
 # ═══════════════════════════════════════════════════════════════════
 
 from src.solver import (
-    _classify_error, _ErrorKind, AgentProver, AgentCritic,
-    Critique, Problem, Solver,
+    _classify_error,
+    _ErrorKind,
+    AgentProver,
+    AgentCritic,
+    Critique,
+    Problem,
+    Solver,
 )
 from src.llm import MockLLMProvider
 
@@ -491,7 +519,9 @@ class TestOpenAIProvider_ReasoningEffort(unittest.TestCase):
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_generate_with_xhigh_omits_temperature(self):
         """When reasoning_effort=xhigh, temperature should NOT be in the API call."""
-        provider = OpenAIProvider(api_key="test-key", model="gpt-5.4", reasoning_effort="xhigh")
+        provider = OpenAIProvider(
+            api_key="test-key", model="gpt-5.4", reasoning_effort="xhigh"
+        )
 
         # Mock the client
         mock_response = MagicMock()
@@ -504,7 +534,9 @@ class TestOpenAIProvider_ReasoningEffort(unittest.TestCase):
         provider.generate("test prompt")
 
         call_kwargs = provider.client.chat.completions.create.call_args[1]
-        self.assertNotIn("temperature", call_kwargs, "temperature should not be passed with xhigh")
+        self.assertNotIn(
+            "temperature", call_kwargs, "temperature should not be passed with xhigh"
+        )
         self.assertIn("reasoning_effort", call_kwargs)
         self.assertEqual(call_kwargs["reasoning_effort"], "xhigh")
 
@@ -539,16 +571,18 @@ class TestEnvironmentBug_IndependentVerification(unittest.TestCase):
         """Confirm that the 'or True' debug hack has been removed."""
         env_path = Path(__file__).parent.parent / "src" / "environment.py"
         content = env_path.read_text()
-        self.assertNotIn("or True", content,
-                          "The 'or True' debug hack should be removed")
+        self.assertNotIn(
+            "or True", content, "The 'or True' debug hack should be removed"
+        )
         # Verify the correct cache condition exists
         found_cache_check = False
-        for line in content.split('\n'):
-            if 'installer_path.exists()' in line:
+        for line in content.split("\n"):
+            if "installer_path.exists()" in line:
                 self.assertNotIn("or True", line)
                 found_cache_check = True
-        self.assertTrue(found_cache_check,
-                        "Should still have installer_path.exists() check")
+        self.assertTrue(
+            found_cache_check, "Should still have installer_path.exists() check"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -572,8 +606,14 @@ class TestConfigIntegration_IndependentVerification(unittest.TestCase):
         """No config and no env vars should gracefully fall back to mock."""
         with patch.dict(os.environ, {}, clear=True):
             # Remove all API keys
-            for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
-                         "ANTHROPIC_API_KEY", "OLLAMA_URL", "ERDOS_MOCK_MODE"]:
+            for key in [
+                "GOOGLE_API_KEY",
+                "GEMINI_API_KEY",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "OLLAMA_URL",
+                "ERDOS_MOCK_MODE",
+            ]:
                 os.environ.pop(key, None)
             provider = create_provider()
             self.assertIsInstance(provider, MockLLMProvider)
@@ -606,7 +646,7 @@ class TestSolverIntegration_IndependentVerification(unittest.TestCase):
         problem = Problem(
             id="TEST001",
             path="Test.lean",
-            original_content="theorem test_thm : 1 + 1 = 2 := by sorry"
+            original_content="theorem test_thm : 1 + 1 = 2 := by sorry",
         )
 
         try:
@@ -617,6 +657,7 @@ class TestSolverIntegration_IndependentVerification(unittest.TestCase):
         finally:
             solver.cleanup()
             import shutil
+
             shutil.rmtree(config.solver.work_dir, ignore_errors=True)
 
     def test_budget_stops_solver(self):
@@ -631,7 +672,7 @@ class TestSolverIntegration_IndependentVerification(unittest.TestCase):
         problem = Problem(
             id="TEST002",
             path="Test.lean",
-            original_content="theorem test : True := by sorry"
+            original_content="theorem test : True := by sorry",
         )
 
         try:
@@ -640,6 +681,7 @@ class TestSolverIntegration_IndependentVerification(unittest.TestCase):
         finally:
             solver.cleanup()
             import shutil
+
             shutil.rmtree(config.solver.work_dir, ignore_errors=True)
 
 

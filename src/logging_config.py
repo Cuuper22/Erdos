@@ -85,9 +85,7 @@ def log_with_data(
     In JSON mode, data appears in the 'data' field.
     In human mode, data is ignored (message should be self-explanatory).
     """
-    record = logger.makeRecord(
-        logger.name, level, "(unknown)", 0, message, (), None
-    )
+    record = logger.makeRecord(logger.name, level, "(unknown)", 0, message, (), None)
     if data:
         record.data = data
     logger.handle(record)

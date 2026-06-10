@@ -20,11 +20,22 @@ from datetime import datetime
 from .config import Config
 from .validator import TheoremLocker, validate_theorem_integrity, ValidationResult
 from .sandbox import Sandbox, SandboxManager, run_lake_build, BuildResult
-from .llm import LLMProvider, MockLLMProvider, GeminiProvider, GeminiAPIError, create_provider
+from .llm import (
+    LLMProvider,
+    MockLLMProvider,
+    GeminiProvider,
+    GeminiAPIError,
+    create_provider,
+)
 from .logging_config import setup_logging
 from .events import (
-    emit_event, ProblemStarted, CostUpdate, AttemptResult,
-    SolutionFound, ProblemFailed, MiningComplete,
+    emit_event,
+    ProblemStarted,
+    CostUpdate,
+    AttemptResult,
+    SolutionFound,
+    ProblemFailed,
+    MiningComplete,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +45,7 @@ logger = logging.getLogger(__name__)
 # The LLM must never see internal validation details, security check names,
 # file paths, budget info, or anything that reveals how the eval harness works.
 # It only receives sanitized compiler feedback to refine its proof approach.
+
 
 class FeedbackSanitizer:
     """Sanitizes error feedback before it reaches the LLM.
@@ -52,8 +64,8 @@ class FeedbackSanitizer:
     _SYSTEM_PREFIXES = ("SYSTEM:", "BUDGET:", "INTERNAL:")
 
     # Patterns to strip from compiler feedback
-    _PATH_PATTERN = re.compile(r'(/[^\s:]+/sandbox_[^\s:]+/)')
-    _HASH_PATTERN = re.compile(r'[a-f0-9]{16,64}')
+    _PATH_PATTERN = re.compile(r"(/[^\s:]+/sandbox_[^\s:]+/)")
+    _HASH_PATTERN = re.compile(r"[a-f0-9]{16,64}")
 
     # Generic replacement for system-level rejections
     _GENERIC_REJECTION = (
@@ -81,16 +93,16 @@ class FeedbackSanitizer:
 
         # Compiler errors are useful — sanitize paths but keep the message
         if error_message.startswith("COMPILER:"):
-            sanitized = error_message[len("COMPILER:"):].strip()
-            sanitized = cls._PATH_PATTERN.sub('<file>/', sanitized)
+            sanitized = error_message[len("COMPILER:") :].strip()
+            sanitized = cls._PATH_PATTERN.sub("<file>/", sanitized)
             return f"Lean compiler error:\n{sanitized}"
 
         # Critic feedback is useful — pass through with path scrubbing
         if error_message.startswith("CRITIC:"):
-            return error_message[len("CRITIC:"):].strip()
+            return error_message[len("CRITIC:") :].strip()
 
         # Unknown format — scrub paths and pass through
-        sanitized = cls._PATH_PATTERN.sub('', error_message)
+        sanitized = cls._PATH_PATTERN.sub("", error_message)
         return sanitized
 
 
@@ -98,15 +110,29 @@ class FeedbackSanitizer:
 class _ErrorKind:
     TRANSIENT = "transient"  # Retry with backoff
     PERMANENT = "permanent"  # Stop immediately
-    BUDGET = "budget"        # Budget exhausted
+    BUDGET = "budget"  # Budget exhausted
 
 
 def _classify_error(error: Exception) -> str:
     """Classify an error as transient, permanent, or budget."""
     err_str = str(error).lower()
-    if any(kw in err_str for kw in ["rate limit", "429", "503", "500", "overloaded", "unavailable", "timeout"]):
+    if any(
+        kw in err_str
+        for kw in [
+            "rate limit",
+            "429",
+            "503",
+            "500",
+            "overloaded",
+            "unavailable",
+            "timeout",
+        ]
+    ):
         return _ErrorKind.TRANSIENT
-    if any(kw in err_str for kw in ["401", "403", "invalid", "authentication", "unauthorized"]):
+    if any(
+        kw in err_str
+        for kw in ["401", "403", "invalid", "authentication", "unauthorized"]
+    ):
         return _ErrorKind.PERMANENT
     if "budget" in err_str:
         return _ErrorKind.BUDGET
@@ -117,6 +143,7 @@ def _classify_error(error: Exception) -> str:
 @dataclass
 class Problem:
     """Represents a proof mining problem."""
+
     id: str
     path: str
     difficulty: str = "Unknown"
@@ -127,6 +154,7 @@ class Problem:
 @dataclass
 class Critique:
     """Result of the Critic agent's review."""
+
     status: str  # "PASS" or "FAIL"
     feedback: str
     is_elegant: bool = False
@@ -136,13 +164,14 @@ class Critique:
 @dataclass
 class ProofArtifact:
     """A validated proof ready for submission."""
+
     problem_id: str
     proof_content: str
     build_logs: str
     critique: Critique
     timestamp: datetime = field(default_factory=datetime.now)
     attempts: int = 0
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
@@ -160,15 +189,13 @@ class ProofArtifact:
         }
 
 
-
-
 class AgentProver:
     """
     The Prover agent responsible for generating proof candidates.
-    
+
     Uses an LLM to attempt to close 'sorry' gaps in Lean code.
     """
-    
+
     SYSTEM_PROMPT = """You are a formalization expert specializing in Lean 4 proofs.
 Your task is to complete mathematical proofs by replacing 'sorry' placeholders with valid Lean 4 tactics.
 
@@ -179,73 +206,76 @@ Rules:
 4. Keep proofs concise and elegant when possible
 5. Never use 'sorry', 'admit', or 'axiom' in your solution
 """
-    
+
     def __init__(self, llm: LLMProvider, temperature: float = 0.7):
         """
         Initialize the Prover agent.
-        
+
         Args:
             llm: The LLM provider to use
             temperature: Sampling temperature for generation
         """
         self.llm = llm
         self.temperature = temperature
-    
+
     def generate(
         self,
         problem_content: str,
         instructions: str = "",
-        error_log: Optional[str] = None
+        error_log: Optional[str] = None,
     ) -> tuple[str, int, int]:
         """
         Generate a proof candidate.
-        
+
         Args:
             problem_content: The Lean file content with 'sorry' to replace
             instructions: Optional maintainer instructions/hints
             error_log: Optional previous error to learn from
-        
+
         Returns:
             Tuple of (proof_candidate, input_tokens, output_tokens)
         """
         prompt_parts = [self.SYSTEM_PROMPT, "\n\n--- LEAN CODE ---\n", problem_content]
-        
+
         if instructions:
             prompt_parts.extend(["\n\n--- MAINTAINER HINTS ---\n", instructions])
-        
+
         if error_log:
-            prompt_parts.extend([
-                "\n\n--- PREVIOUS ERROR ---\n",
-                "Your previous attempt failed with this error. Fix it:\n",
-                error_log
-            ])
-        
-        prompt_parts.append("\n\n--- YOUR SOLUTION ---\nReplace 'sorry' with a valid proof:")
-        
-        prompt = ''.join(prompt_parts)
-        response, in_tokens, out_tokens = self.llm.generate(
-            prompt,
-            temperature=self.temperature
+            prompt_parts.extend(
+                [
+                    "\n\n--- PREVIOUS ERROR ---\n",
+                    "Your previous attempt failed with this error. Fix it:\n",
+                    error_log,
+                ]
+            )
+
+        prompt_parts.append(
+            "\n\n--- YOUR SOLUTION ---\nReplace 'sorry' with a valid proof:"
         )
-        
+
+        prompt = "".join(prompt_parts)
+        response, in_tokens, out_tokens = self.llm.generate(
+            prompt, temperature=self.temperature
+        )
+
         # Clean up the response
         candidate = self._clean_response(response, problem_content)
-        
+
         return candidate, in_tokens, out_tokens
-    
+
     def _clean_response(self, response: str, original: str) -> str:
         """Clean up the LLM response to extract valid Lean code."""
         # Remove markdown code blocks if present
-        response = re.sub(r'```lean\n?', '', response)
-        response = re.sub(r'```\n?', '', response)
+        response = re.sub(r"```lean\n?", "", response)
+        response = re.sub(r"```\n?", "", response)
 
         # If response looks like a complete file, use it
-        if 'theorem' in response or 'lemma' in response:
+        if "theorem" in response or "lemma" in response:
             return response.strip()
 
         # Otherwise, try to insert the response into the original
         # replacing 'sorry' in the proof body only (after ':= by'), not in comments
-        if 'sorry' in original:
+        if "sorry" in original:
             return self._replace_sorry_in_body(original, response.strip())
 
         return response.strip()
@@ -257,32 +287,32 @@ Rules:
         Finds the first 'sorry' that is NOT inside a line comment (-- ...)
         and replaces it with the given replacement text.
         """
-        lines = original.split('\n')
+        lines = original.split("\n")
         for i, line in enumerate(lines):
             # Strip the comment portion to check if 'sorry' is in code
-            comment_start = line.find('--')
+            comment_start = line.find("--")
             if comment_start >= 0:
                 code_part = line[:comment_start]
             else:
                 code_part = line
 
-            if 'sorry' in code_part:
+            if "sorry" in code_part:
                 # Replace the first 'sorry' in this line's code portion
-                idx = code_part.index('sorry')
-                lines[i] = line[:idx] + replacement + line[idx + 5:]
-                return '\n'.join(lines)
+                idx = code_part.index("sorry")
+                lines[i] = line[:idx] + replacement + line[idx + 5 :]
+                return "\n".join(lines)
 
         # Fallback: no sorry found outside comments — use simple replace
-        return original.replace('sorry', replacement, 1)
+        return original.replace("sorry", replacement, 1)
 
 
 class AgentCritic:
     """
     The Critic agent responsible for quality control.
-    
+
     Reviews proof candidates for correctness, elegance, and security.
     """
-    
+
     SYSTEM_PROMPT = """You are a code review expert for Lean 4 proofs.
 Your job is to evaluate proof quality and security.
 
@@ -299,26 +329,28 @@ Respond in this exact JSON format:
     "security_concerns": ["list", "of", "concerns"] or []
 }
 """
-    
+
     def __init__(self, llm: LLMProvider, temperature: float = 0.1):
         """
         Initialize the Critic agent.
-        
+
         Args:
             llm: The LLM provider to use
             temperature: Sampling temperature (low for consistent critiques)
         """
         self.llm = llm
         self.temperature = temperature
-    
-    def review(self, proof_content: str, build_logs: str = "") -> tuple[Critique, int, int]:
+
+    def review(
+        self, proof_content: str, build_logs: str = ""
+    ) -> tuple[Critique, int, int]:
         """
         Review a proof candidate.
-        
+
         Args:
             proof_content: The Lean proof to review
             build_logs: Optional build logs from compilation
-        
+
         Returns:
             Tuple of (Critique, input_tokens, output_tokens)
         """
@@ -331,33 +363,32 @@ Respond in this exact JSON format:
 {build_logs if build_logs else "Build successful, no errors."}
 
 --- YOUR REVIEW (JSON) ---"""
-        
+
         response, in_tokens, out_tokens = self.llm.generate(
-            prompt,
-            temperature=self.temperature
+            prompt, temperature=self.temperature
         )
-        
+
         critique = self._parse_critique(response)
         return critique, in_tokens, out_tokens
-    
+
     def _parse_critique(self, response: str) -> Critique:
         """Parse the LLM response into a Critique object."""
         try:
             # Try to find and parse JSON from the response
             # Handle potentially nested JSON by finding balanced braces
-            start_idx = response.find('{')
+            start_idx = response.find("{")
             if start_idx != -1:
                 brace_count = 0
                 end_idx = start_idx
                 for i, char in enumerate(response[start_idx:], start_idx):
-                    if char == '{':
+                    if char == "{":
                         brace_count += 1
-                    elif char == '}':
+                    elif char == "}":
                         brace_count -= 1
                         if brace_count == 0:
                             end_idx = i + 1
                             break
-                
+
                 if end_idx > start_idx:
                     json_str = response[start_idx:end_idx]
                     data = json.loads(json_str)
@@ -365,36 +396,36 @@ Respond in this exact JSON format:
                         status=data.get("status", "FAIL"),
                         feedback=data.get("feedback", "Unable to parse feedback"),
                         is_elegant=data.get("is_elegant", False),
-                        security_concerns=data.get("security_concerns", [])
+                        security_concerns=data.get("security_concerns", []),
                     )
         except json.JSONDecodeError:
             pass
-        
+
         # Fallback: simple heuristic parsing
         status = "PASS" if "pass" in response.lower() else "FAIL"
         return Critique(
             status=status,
             feedback=response[:500],
             is_elegant=False,
-            security_concerns=[]
+            security_concerns=[],
         )
 
 
 class Solver:
     """
     Main solver that orchestrates the Prover/Critic loop.
-    
+
     This class manages the entire proof generation pipeline:
     1. Set up sandbox environment
     2. Lock theorem statement (integrity check)
     3. Run prover/critic loop
     4. Package successful proofs
     """
-    
+
     def __init__(self, config: Config, llm: LLMProvider):
         """
         Initialize the solver.
-        
+
         Args:
             config: Configuration settings
             llm: LLM provider for agents
@@ -404,32 +435,30 @@ class Solver:
         self.critic = AgentCritic(llm, temperature=config.llm.temperature_critic)
         self.theorem_locker = TheoremLocker()
         self.sandbox_manager = SandboxManager(config.solver.work_dir)
-    
+
     def process_problem(
-        self,
-        problem: Problem,
-        source_dir: Optional[Path] = None
+        self, problem: Problem, source_dir: Optional[Path] = None
     ) -> Optional[ProofArtifact]:
         """
         Attempt to solve a proof mining problem.
-        
+
         Args:
             problem: The problem to solve
             source_dir: Optional source directory with Lean project
-        
+
         Returns:
             ProofArtifact if successful, None otherwise
         """
         logger.info(f"Processing problem: {problem.id}")
-        
+
         # Check budget
         if not self.config.cost.check_budget():
             logger.warning("Budget exhausted, stopping")
             return None
-        
+
         # Create sandbox
         sandbox = self.sandbox_manager.create_sandbox(problem.id, source_dir)
-        
+
         try:
             # Load original content
             if problem.original_content:
@@ -440,45 +469,42 @@ class Solver:
                 except FileNotFoundError:
                     logger.error(f"Problem file not found: {problem.path}")
                     return None
-            
+
             # Lock theorem statement
             self.theorem_locker.lock_theorem(problem.id, original_content)
-            
+
             # Run the solving loop
             return self._solve_loop(
-                problem=problem,
-                sandbox=sandbox,
-                original_content=original_content
+                problem=problem, sandbox=sandbox, original_content=original_content
             )
-        
+
         finally:
             self.sandbox_manager.cleanup_sandbox(problem.id)
-    
+
     def _solve_loop(
-        self,
-        problem: Problem,
-        sandbox: Sandbox,
-        original_content: str
+        self, problem: Problem, sandbox: Sandbox, original_content: str
     ) -> Optional[ProofArtifact]:
         """
         Run the main prover/critic loop.
-        
+
         Args:
             problem: The problem being solved
             sandbox: The sandbox environment
             original_content: Original Lean file content
-        
+
         Returns:
             ProofArtifact if successful, None otherwise
         """
         last_error: Optional[str] = None
         max_retries = self.config.solver.max_retries
 
-        emit_event(ProblemStarted(
-            problem_id=problem.id,
-            difficulty=problem.difficulty,
-            max_retries=max_retries,
-        ))
+        emit_event(
+            ProblemStarted(
+                problem_id=problem.id,
+                difficulty=problem.difficulty,
+                max_retries=max_retries,
+            )
+        )
 
         for attempt in range(max_retries):
             logger.info(f"Attempt {attempt + 1}/{max_retries}")
@@ -486,42 +512,53 @@ class Solver:
             # Check budget before each attempt
             if not self.config.cost.check_budget():
                 logger.warning(f"Budget exhausted after {attempt} attempts")
-                emit_event(ProblemFailed(
-                    problem_id=problem.id, attempts=attempt,
-                    last_error="Budget exhausted",
-                ))
+                emit_event(
+                    ProblemFailed(
+                        problem_id=problem.id,
+                        attempts=attempt,
+                        last_error="Budget exhausted",
+                    )
+                )
                 break
 
             # A. GENERATE proof candidate
             # Sanitize feedback so LLM never sees eval internals
-            sanitized_error = FeedbackSanitizer.sanitize(last_error) if last_error else None
+            sanitized_error = (
+                FeedbackSanitizer.sanitize(last_error) if last_error else None
+            )
             try:
                 candidate, in_tokens, out_tokens = self.prover.generate(
                     problem_content=original_content,
                     instructions=problem.maintainer_note,
-                    error_log=sanitized_error
+                    error_log=sanitized_error,
                 )
                 cost = self.config.cost.add_usage(in_tokens, out_tokens)
-                emit_event(CostUpdate(
-                    cost_usd=cost,
-                    total_spent_usd=self.config.cost.current_spent,
-                    remaining_usd=self.config.cost.remaining_budget(),
-                    input_tokens=in_tokens,
-                    output_tokens=out_tokens,
-                ))
+                emit_event(
+                    CostUpdate(
+                        cost_usd=cost,
+                        total_spent_usd=self.config.cost.current_spent,
+                        remaining_usd=self.config.cost.remaining_budget(),
+                        input_tokens=in_tokens,
+                        output_tokens=out_tokens,
+                    )
+                )
             except Exception as e:
                 kind = _classify_error(e)
                 logger.error(f"Prover generation failed ({kind}): {e}")
                 last_error = str(e)
-                emit_event(AttemptResult(
-                    problem_id=problem.id, attempt=attempt + 1,
-                    status="generation_error", message=str(e),
-                ))
+                emit_event(
+                    AttemptResult(
+                        problem_id=problem.id,
+                        attempt=attempt + 1,
+                        status="generation_error",
+                        message=str(e),
+                    )
+                )
                 if kind == _ErrorKind.PERMANENT:
                     logger.error("Permanent error — stopping retries")
                     break
                 if kind == _ErrorKind.TRANSIENT and attempt < max_retries - 1:
-                    delay = min(1.0 * (2 ** attempt) + random.uniform(0, 1), 30.0)
+                    delay = min(1.0 * (2**attempt) + random.uniform(0, 1), 30.0)
                     logger.info(f"Backing off {delay:.1f}s before retry")
                     time.sleep(delay)
                 continue
@@ -531,10 +568,14 @@ class Solver:
             if not validation.is_valid:
                 last_error = f"SYSTEM: {'; '.join(validation.errors)}"
                 logger.warning(f"Integrity check failed: {last_error}")
-                emit_event(AttemptResult(
-                    problem_id=problem.id, attempt=attempt + 1,
-                    status="integrity_fail", message=last_error,
-                ))
+                emit_event(
+                    AttemptResult(
+                        problem_id=problem.id,
+                        attempt=attempt + 1,
+                        status="integrity_fail",
+                        message=last_error,
+                    )
+                )
                 continue
 
             # Write candidate to sandbox
@@ -544,22 +585,28 @@ class Solver:
             if sandbox.work_dir:
                 build_result = run_lake_build(
                     sandbox.work_dir,
-                    timeout_seconds=self.config.solver.build_timeout_seconds
+                    timeout_seconds=self.config.solver.build_timeout_seconds,
                 )
             else:
                 build_result = BuildResult(
-                    success=False, stdout="",
+                    success=False,
+                    stdout="",
                     stderr="Sandbox not initialized",
-                    return_code=-1, duration_seconds=0,
+                    return_code=-1,
+                    duration_seconds=0,
                 )
 
             if not build_result.success:
                 last_error = f"COMPILER: {build_result.get_error_summary()}"
                 logger.info(f"Build failed: {last_error[:200]}")
-                emit_event(AttemptResult(
-                    problem_id=problem.id, attempt=attempt + 1,
-                    status="build_fail", message=last_error[:200],
-                ))
+                emit_event(
+                    AttemptResult(
+                        problem_id=problem.id,
+                        attempt=attempt + 1,
+                        status="build_fail",
+                        message=last_error[:200],
+                    )
+                )
                 continue
 
             logger.info("Build successful, running critic review")
@@ -567,57 +614,70 @@ class Solver:
             # D. CRITIC CHECK
             try:
                 critique, in_tokens, out_tokens = self.critic.review(
-                    candidate,
-                    build_result.stdout + build_result.stderr
+                    candidate, build_result.stdout + build_result.stderr
                 )
                 cost = self.config.cost.add_usage(in_tokens, out_tokens)
-                emit_event(CostUpdate(
-                    cost_usd=cost,
-                    total_spent_usd=self.config.cost.current_spent,
-                    remaining_usd=self.config.cost.remaining_budget(),
-                    input_tokens=in_tokens,
-                    output_tokens=out_tokens,
-                ))
+                emit_event(
+                    CostUpdate(
+                        cost_usd=cost,
+                        total_spent_usd=self.config.cost.current_spent,
+                        remaining_usd=self.config.cost.remaining_budget(),
+                        input_tokens=in_tokens,
+                        output_tokens=out_tokens,
+                    )
+                )
             except Exception as e:
                 logger.error(f"Critic review failed: {e}")
                 last_error = str(e)
-                emit_event(AttemptResult(
-                    problem_id=problem.id, attempt=attempt + 1,
-                    status="critic_error", message=str(e),
-                ))
+                emit_event(
+                    AttemptResult(
+                        problem_id=problem.id,
+                        attempt=attempt + 1,
+                        status="critic_error",
+                        message=str(e),
+                    )
+                )
                 continue
 
             if critique.status == "PASS":
                 logger.info(f"Proof found after {attempt + 1} attempts")
-                emit_event(SolutionFound(
-                    problem_id=problem.id,
-                    attempts=attempt + 1,
-                    proof_preview=candidate[:200],
-                    is_elegant=critique.is_elegant,
-                ))
+                emit_event(
+                    SolutionFound(
+                        problem_id=problem.id,
+                        attempts=attempt + 1,
+                        proof_preview=candidate[:200],
+                        is_elegant=critique.is_elegant,
+                    )
+                )
                 return ProofArtifact(
                     problem_id=problem.id,
                     proof_content=candidate,
                     build_logs=build_result.stdout,
                     critique=critique,
-                    attempts=attempt + 1
+                    attempts=attempt + 1,
                 )
             else:
                 last_error = f"CRITIC: {critique.feedback}"
                 logger.info(f"Critic rejected proof: {critique.feedback[:200]}")
-                emit_event(AttemptResult(
-                    problem_id=problem.id, attempt=attempt + 1,
-                    status="critic_fail", message=critique.feedback[:200],
-                ))
+                emit_event(
+                    AttemptResult(
+                        problem_id=problem.id,
+                        attempt=attempt + 1,
+                        status="critic_fail",
+                        message=critique.feedback[:200],
+                    )
+                )
 
         logger.warning(f"Failed to solve after {max_retries} attempts")
-        emit_event(ProblemFailed(
-            problem_id=problem.id,
-            attempts=max_retries,
-            last_error=last_error or "Max retries exhausted",
-        ))
+        emit_event(
+            ProblemFailed(
+                problem_id=problem.id,
+                attempts=max_retries,
+                last_error=last_error or "Max retries exhausted",
+            )
+        )
         return None
-    
+
     def cleanup(self) -> None:
         """Clean up all resources."""
         self.sandbox_manager.cleanup_all()
@@ -640,7 +700,7 @@ def load_manifest(manifest_path: Path) -> list[Problem]:
     """
     manifest_dir = manifest_path.parent.resolve()
 
-    with open(manifest_path, 'r') as f:
+    with open(manifest_path, "r") as f:
         data = json.load(f)
 
     problems = []
@@ -653,13 +713,15 @@ def load_manifest(manifest_path: Path) -> list[Problem]:
         if resolved.exists():
             original_content = resolved.read_text(encoding="utf-8")
 
-        problems.append(Problem(
-            id=p["id"],
-            path=str(resolved),
-            difficulty=p.get("difficulty", "Unknown"),
-            maintainer_note=p.get("maintainer_note", ""),
-            original_content=original_content,
-        ))
+        problems.append(
+            Problem(
+                id=p["id"],
+                path=str(resolved),
+                difficulty=p.get("difficulty", "Unknown"),
+                maintainer_note=p.get("maintainer_note", ""),
+                original_content=original_content,
+            )
+        )
 
     return problems
 
@@ -670,12 +732,27 @@ def main():
 
     parser = argparse.ArgumentParser(description="Erdos Proof Mining System")
     parser.add_argument("--config", type=Path, help="Path to configuration file")
-    parser.add_argument("--manifest", type=Path, default=Path("manifest.json"), help="Path to problem manifest")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("manifest.json"),
+        help="Path to problem manifest",
+    )
     parser.add_argument("--problem-id", type=str, help="Solve a specific problem by ID")
-    parser.add_argument("--json-logs", action="store_true", help="Output JSON Lines for GUI consumption")
-    parser.add_argument("--list-solutions", action="store_true", help="List all packaged solutions")
-    parser.add_argument("--view", type=str, metavar="PROBLEM_ID", help="View details of a solution")
-    parser.add_argument("--setup", action="store_true", help="Auto-install Lean/elan if not found before solving")
+    parser.add_argument(
+        "--json-logs", action="store_true", help="Output JSON Lines for GUI consumption"
+    )
+    parser.add_argument(
+        "--list-solutions", action="store_true", help="List all packaged solutions"
+    )
+    parser.add_argument(
+        "--view", type=str, metavar="PROBLEM_ID", help="View details of a solution"
+    )
+    parser.add_argument(
+        "--setup",
+        action="store_true",
+        help="Auto-install Lean/elan if not found before solving",
+    )
 
     args = parser.parse_args()
 
@@ -694,6 +771,7 @@ def main():
     # Handle solution queries (no LLM needed)
     if args.list_solutions or args.view:
         from .packager import list_solutions, get_solution
+
         if args.list_solutions:
             solutions = list_solutions()
             if not solutions:
@@ -701,8 +779,10 @@ def main():
                 return
             for s in solutions:
                 elegant = " [elegant]" if s.get("is_elegant") else ""
-                print(f"  {s['problem_id']:20s}  {s.get('timestamp', '?'):25s}  "
-                      f"{s.get('attempts', '?')} attempts  ${s.get('cost_usd', 0):.4f}{elegant}")
+                print(
+                    f"  {s['problem_id']:20s}  {s.get('timestamp', '?'):25s}  "
+                    f"{s.get('attempts', '?')} attempts  ${s.get('cost_usd', 0):.4f}{elegant}"
+                )
             return
         if args.view:
             solution = get_solution(args.view)
@@ -723,6 +803,7 @@ def main():
     # ── Environment setup / pre-flight ──
     if args.setup:
         from .environment import EnvironmentManager
+
         env_mgr = EnvironmentManager()
         status = env_mgr.get_status()
         if not status.is_ready():
@@ -736,6 +817,7 @@ def main():
     else:
         # Pre-flight: check Lean is available
         from .sandbox import _discover_elan_bin, check_lean_installed
+
         elan_bin = _discover_elan_bin()
         if elan_bin is None:
             lean_ok, lean_msg = check_lean_installed()
@@ -790,13 +872,14 @@ def main():
             if result:
                 solved += 1
                 output_path = config.solver.work_dir / f"solution_{problem.id}.json"
-                with open(output_path, 'w') as f:
+                with open(output_path, "w") as f:
                     json.dump(result.to_dict(), f, indent=2)
                 logger.info(f"Solution saved to: {output_path}")
 
                 # Package into ZIP bundle
                 try:
                     from .packager import package_artifact
+
                     zip_path = package_artifact(
                         result,
                         model_name=config.llm.model,
@@ -816,13 +899,15 @@ def main():
                 break
 
         # Emit mining complete summary
-        emit_event(MiningComplete(
-            total_problems=len(problems),
-            solved=solved,
-            failed=failed,
-            total_cost_usd=config.cost.current_spent,
-            duration_seconds=time.time() - start_time,
-        ))
+        emit_event(
+            MiningComplete(
+                total_problems=len(problems),
+                solved=solved,
+                failed=failed,
+                total_cost_usd=config.cost.current_spent,
+                duration_seconds=time.time() - start_time,
+            )
+        )
 
     finally:
         solver.cleanup()

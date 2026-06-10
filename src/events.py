@@ -41,7 +41,9 @@ class AttemptResult:
     timestamp: str = field(default_factory=_now)
     problem_id: str = ""
     attempt: int = 0
-    status: str = ""  # "generated", "integrity_fail", "build_fail", "critic_fail", "critic_pass"
+    status: str = (
+        ""  # "generated", "integrity_fail", "build_fail", "critic_fail", "critic_pass"
+    )
     message: str = ""
 
 

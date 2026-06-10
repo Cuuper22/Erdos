@@ -19,7 +19,6 @@ from typing import Optional
 
 from .validator import compute_theorem_hash
 
-
 # Default solutions directory
 DEFAULT_SOLUTIONS_DIR = Path.home() / ".erdos-prover" / "solutions"
 INDEX_FILENAME = "solutions_index.json"

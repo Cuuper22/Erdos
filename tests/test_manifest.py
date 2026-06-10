@@ -21,14 +21,17 @@ from src.manifest import (
     _save_cache,
 )
 
-
 SAMPLE_MANIFEST = {
     "active_campaign": "Test_Q1",
     "min_app_version": "1.0.0",
     "priority_problems": [
         {"id": "P001", "path": "problems/001.lean", "difficulty": "Easy"},
-        {"id": "P002", "path": "problems/002.lean", "difficulty": "Hard",
-         "maintainer_note": "Use omega"},
+        {
+            "id": "P002",
+            "path": "problems/002.lean",
+            "difficulty": "Hard",
+            "maintainer_note": "Use omega",
+        },
     ],
     "banned_tactics": ["sorry", "admit"],
     "repository": {
@@ -146,8 +149,12 @@ class TestMergeManifests:
         remote = parse_manifest(SAMPLE_MANIFEST, source="remote")
         local_data = {
             "priority_problems": [
-                {"id": "P001", "path": "problems/001.lean", "difficulty": "Medium",
-                 "maintainer_note": "Local override"},
+                {
+                    "id": "P001",
+                    "path": "problems/001.lean",
+                    "difficulty": "Medium",
+                    "maintainer_note": "Local override",
+                },
             ],
         }
         local = parse_manifest(local_data, source="local")

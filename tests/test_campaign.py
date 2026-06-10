@@ -26,8 +26,13 @@ class TestCampaignManager:
                 "total_attempts": 3,
                 "total_cost_usd": 0.05,
                 "records": [
-                    {"timestamp": "2026-01-01", "result": "solved", "attempts": 3,
-                     "cost_usd": 0.05, "error": ""},
+                    {
+                        "timestamp": "2026-01-01",
+                        "result": "solved",
+                        "attempts": 3,
+                        "cost_usd": 0.05,
+                        "error": "",
+                    },
                 ],
             }
         }
@@ -54,7 +59,9 @@ class TestRecordAttempt:
 
     def test_record_failed(self, tmp_path):
         mgr = CampaignManager(history_dir=tmp_path)
-        mgr.record_attempt("P001", result="failed", attempts=10, error="Budget exhausted")
+        mgr.record_attempt(
+            "P001", result="failed", attempts=10, error="Budget exhausted"
+        )
 
         assert not mgr.is_solved("P001")
         ph = mgr.get_history("P001")

@@ -1,8 +1,7 @@
 {
   "llm": {
-    "provider": "chatgpt",
-    "model": "gpt-5.4",
-    "reasoning_effort": "high",
+    "provider": "openrouter",
+    "model": "google/gemini-2.5-flash",
     "temperature_prover": 0.7,
     "temperature_critic": 0.1
   },

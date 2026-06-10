@@ -15,17 +15,20 @@ from pathlib import Path
 @dataclass
 class LLMConfig:
     """Configuration for LLM providers."""
-    provider: str = "google"  # "openai", "anthropic", "google", or "ollama"
+    provider: str = "openrouter"  # "openrouter", "openai", "anthropic", "google", "ollama", or "chatgpt"
     api_key: Optional[str] = None
-    model: str = "gemini-3-flash"
+    model: str = "google/gemini-2.5-flash"
     reasoning_effort: Optional[str] = None  # "none", "low", "medium", "high", "xhigh"
     temperature_prover: float = 0.7
     temperature_critic: float = 0.1
     ollama_url: str = "http://localhost:11434"
-    
+
+    # Providers that require an API key (ollama and chatgpt do not)
+    KEYED_PROVIDERS = ("openrouter", "openai", "anthropic", "google", "gemini")
+
     def validate(self) -> bool:
         """Validate the LLM configuration."""
-        if self.provider in ["openai", "anthropic", "google"]:
+        if self.provider in self.KEYED_PROVIDERS:
             if not self.api_key:
                 raise ValueError(f"API key required for {self.provider}")
         return True
@@ -85,9 +88,17 @@ class Config:
         config = cls()
         
         # LLM configuration
-        if os.environ.get("GOOGLE_API_KEY"):
+        if os.environ.get("OPENROUTER_API_KEY"):
+            config.llm.provider = "openrouter"
+            config.llm.api_key = os.environ["OPENROUTER_API_KEY"]
+            config.llm.model = os.environ.get("LLM_MODEL", "google/gemini-2.5-flash")
+        elif os.environ.get("GOOGLE_API_KEY"):
             config.llm.provider = "google"
             config.llm.api_key = os.environ["GOOGLE_API_KEY"]
+            config.llm.model = os.environ.get("LLM_MODEL", "gemini-3-flash")
+        elif os.environ.get("GEMINI_API_KEY"):
+            config.llm.provider = "google"
+            config.llm.api_key = os.environ["GEMINI_API_KEY"]
             config.llm.model = os.environ.get("LLM_MODEL", "gemini-3-flash")
         elif os.environ.get("OPENAI_API_KEY"):
             config.llm.provider = "openai"
@@ -121,7 +132,7 @@ class Config:
             config.manifest_url = os.environ["MANIFEST_URL"]
         
         # Early validation - check if API key is set when not using mock
-        if config.llm.provider in ["openai", "anthropic", "google"] and not config.llm.api_key:
+        if config.llm.provider in LLMConfig.KEYED_PROVIDERS and not config.llm.api_key:
             # Check if we're in testing/mock mode
             if not os.environ.get("ERDOS_MOCK_MODE"):
                 raise ValueError(
@@ -167,6 +178,7 @@ class Config:
         # Fall back to env var for API key if not in config file
         if not config.llm.api_key:
             env_keys = {
+                "openrouter": "OPENROUTER_API_KEY",
                 "openai": "OPENAI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
                 "google": "GOOGLE_API_KEY",

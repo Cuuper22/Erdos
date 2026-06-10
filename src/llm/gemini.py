@@ -54,7 +54,7 @@ class GeminiProvider(LLMProvider):
         except ImportError:
             raise ImportError(
                 "google-generativeai package not installed. "
-                "Install it with: pip install google-generativeai"
+                "Install it with: pip install erdos-prover[gemini]"
             )
 
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")

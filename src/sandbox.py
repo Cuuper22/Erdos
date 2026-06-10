@@ -113,7 +113,7 @@ class Sandbox:
                 [lake_cmd, "init", "ErdosSandbox"],
                 cwd=self.work_dir,
                 capture_output=True, text=True, timeout=30,
-                env={**os.environ, "PATH": f"{lake_bin}:{os.environ.get('PATH', '')}"} if lake_bin else None,
+                env=_elan_env(lake_bin),
             )
             if result.returncode != 0:
                 logger.warning(f"lake init failed: {result.stderr[:200]}")
@@ -196,6 +196,22 @@ def _discover_elan_bin() -> Optional[Path]:
     return None
 
 
+def _elan_env(elan_bin: Optional[Path]) -> dict:
+    """Build a subprocess environment for elan-proxied binaries.
+
+    The proxies (lean/lake) resolve toolchains via ELAN_HOME, so when the
+    discovered install lives outside the default ~/.elan (e.g. the
+    app-isolated ~/.erdos-prover location), PATH alone is not enough —
+    the proxy would look for toolchains in ~/.elan and fail.
+    """
+    env = os.environ.copy()
+    if elan_bin:
+        path_sep = ";" if os.name == "nt" else ":"
+        env["PATH"] = str(elan_bin) + path_sep + env.get("PATH", "")
+        env["ELAN_HOME"] = str(elan_bin.parent)
+    return env
+
+
 def run_lake_build(
     work_dir: Path,
     timeout_seconds: int = 60,
@@ -219,13 +235,9 @@ def run_lake_build(
     if target:
         cmd.append(target)
     
-    # Discover elan bin directory and ensure it's in PATH
-    env = os.environ.copy()
+    # Discover elan bin directory; PATH and ELAN_HOME must both point at it
+    env = _elan_env(_discover_elan_bin())
     env["LAKE_NO_INTERACTIVE"] = "1"
-    elan_bin = _discover_elan_bin()
-    if elan_bin:
-        path_sep = ";" if os.name == "nt" else ":"
-        env["PATH"] = str(elan_bin) + path_sep + env.get("PATH", "")
 
     try:
         result = subprocess.run(

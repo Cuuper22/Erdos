@@ -31,7 +31,10 @@ from src.validator import (
     extract_theorem_statement, compute_theorem_hash,
     validate_theorem_integrity, run_security_check, TheoremLocker,
 )
-from src.sandbox import Sandbox, SandboxManager, BuildResult, run_lake_build
+from src.sandbox import (
+    Sandbox, SandboxManager, BuildResult, run_lake_build,
+    _discover_elan_bin, _elan_env,
+)
 from src.packager import package_artifact, list_solutions, get_solution
 from src.llm import LLMProvider, MockLLMProvider
 
@@ -112,14 +115,20 @@ theorem true_and_true : True ∧ True := by
 # ═══════════════════════════════════════════════════════════════════
 
 LEAN_AVAILABLE = False
-LEAN_BIN = Path.home() / ".elan" / "bin"
+# Use the same discovery as the production sandbox so these tests run
+# against whichever install exists (~/.elan or the app-isolated
+# ~/.erdos-prover location created by `python -m src.environment --install`).
+_ELAN_BIN = _discover_elan_bin()
+LEAN_BIN = _ELAN_BIN if _ELAN_BIN else Path.home() / ".elan" / "bin"
 LEAN_PATH = str(LEAN_BIN / "lean")
 LAKE_PATH = str(LEAN_BIN / "lake")
+LEAN_ENV = _elan_env(_ELAN_BIN)
 
 try:
     result = subprocess.run(
         [LEAN_PATH, "--version"],
         capture_output=True, text=True, timeout=10,
+        env=LEAN_ENV,
     )
     LEAN_AVAILABLE = result.returncode == 0
 except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -136,6 +145,7 @@ def _setup_lean_project():
             [LAKE_PATH, "init", "RealTest"],
             cwd=LEAN_PROJECT_DIR,
             capture_output=True, timeout=30,
+            env=LEAN_ENV,
         )
 
 
@@ -152,7 +162,7 @@ def _build_lean_file(content: str, filename: str = "Test.lean") -> BuildResult:
             cwd=LEAN_PROJECT_DIR,
             capture_output=True, text=True,
             timeout=120,
-            env={**os.environ, "PATH": f"{LEAN_BIN}:{os.environ.get('PATH', '')}"},
+            env=LEAN_ENV,
         )
         duration = __import__("time").time() - start
         return BuildResult(

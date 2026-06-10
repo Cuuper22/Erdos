@@ -14,10 +14,12 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import time
 import urllib.request
+import zipfile
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +81,21 @@ def _download_with_progress(
     logger.info(f"{label}: complete ({downloaded} bytes)")
 
 
+def _extract_zip_with_permissions(archive: Path, dest: Path) -> None:
+    """Extract a ZIP archive, restoring Unix permission bits.
+
+    Python's ZipFile.extractall drops the executable bit, which breaks
+    extracted toolchain binaries (lean, lake). This restores the mode
+    stored in each entry's external attributes.
+    """
+    with zipfile.ZipFile(archive) as zf:
+        for info in zf.infolist():
+            extracted = Path(zf.extract(info, dest))
+            mode = (info.external_attr >> 16) & 0o7777
+            if mode:
+                extracted.chmod(mode)
+
+
 def _verify_checksum(file_path: Path, expected_sha256: str) -> bool:
     """Verify SHA-256 checksum of a file."""
     h = hashlib.sha256()
@@ -107,6 +124,10 @@ class EnvironmentManager:
 
     ELAN_UNIX_URL = "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh"
     ELAN_WINDOWS_URL = "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1"
+
+    # Official lean4 release archives (toolchain fallback for networks
+    # where release.lean-lang.org is unreachable but github.com is)
+    LEAN4_RELEASES_URL = "https://github.com/leanprover/lean4/releases"
 
     # Cache file for toolchain state
     TOOLCHAIN_CACHE_FILE = "toolchain_cache.json"
@@ -248,8 +269,11 @@ class EnvironmentManager:
         env = os.environ.copy()
         env["ELAN_HOME"] = str(elan_home)
 
+        # --default-toolchain none: only install the elan binary here.
+        # The toolchain itself is installed separately (install_lean_toolchain),
+        # so a slow or failed toolchain download can't fail the elan install.
         result = subprocess.run(
-            [str(installer_path), "-y", "--no-modify-path"],
+            [str(installer_path), "-y", "--no-modify-path", "--default-toolchain", "none"],
             env=env,
             capture_output=True,
             text=True,
@@ -289,11 +313,14 @@ class EnvironmentManager:
         # Quote paths for spaces in usernames
         ps1_path = str(installer_path)
 
+        # -DefaultToolchain none: only install the elan binary here (the
+        # toolchain is installed separately via install_lean_toolchain).
         result = subprocess.run(
             [
                 "powershell", "-ExecutionPolicy", "Bypass",
                 "-File", ps1_path,
                 "-NoPrompt", "-NoModifyPath",
+                "-DefaultToolchain", "none",
             ],
             env=env,
             capture_output=True,
@@ -330,7 +357,13 @@ class EnvironmentManager:
     # ── Toolchain management ──
 
     def install_lean_toolchain(self, toolchain: str = "stable") -> bool:
-        """Install a specific Lean toolchain via elan."""
+        """Install a specific Lean toolchain via elan.
+
+        If elan's normal install path fails (it resolves channels and fetches
+        toolchains via release.lean-lang.org, which some networks block),
+        falls back to downloading the release archive directly from GitHub
+        and registering it with `elan toolchain link`.
+        """
         logger.info(f"Installing Lean toolchain: {toolchain}")
 
         try:
@@ -345,12 +378,118 @@ class EnvironmentManager:
             if result.returncode == 0:
                 logger.info(f"Toolchain {toolchain} installed successfully")
                 return True
-            else:
-                logger.error(f"Failed to install toolchain: {result.stderr}")
-                return False
+
+            logger.error(f"Failed to install toolchain: {result.stderr}")
+            logger.info("Trying direct GitHub release fallback...")
+            return self._install_toolchain_from_github(toolchain)
+        except FileNotFoundError:
+            logger.error("elan not found; install elan first")
+            return False
         except Exception as e:
             logger.error(f"Error installing toolchain: {e}")
             return False
+
+    def _resolve_latest_lean_version(self) -> Optional[str]:
+        """Resolve the latest stable lean4 version tag (e.g. 'v4.30.0').
+
+        Follows the GitHub /releases/latest redirect, which needs no API
+        token and is not rate-limited like the REST API.
+        """
+        url = f"{self.LEAN4_RELEASES_URL}/latest"
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                final_url = resp.geturl()
+        except Exception as e:
+            logger.error(f"Could not resolve latest Lean version: {e}")
+            return None
+
+        tag = final_url.rstrip("/").split("/")[-1]
+        if re.fullmatch(r"v\d+\.\d+\.\d+(-rc\d+)?", tag):
+            return tag
+        logger.error(f"Unexpected redirect target for latest release: {final_url}")
+        return None
+
+    @staticmethod
+    def _parse_lean4_version(toolchain: str) -> Optional[str]:
+        """Extract a pinned lean4 version tag from a toolchain spec.
+
+        Returns 'vX.Y.Z' for 'stable'-resolved or pinned official toolchains,
+        or None for specs the GitHub fallback cannot serve (nightlies, forks).
+        """
+        spec = toolchain.strip()
+        if ":" in spec:
+            origin, _, spec = spec.partition(":")
+            if origin != "leanprover/lean4":
+                return None
+        if re.fullmatch(r"v\d+\.\d+\.\d+(-rc\d+)?", spec):
+            return spec
+        return None
+
+    def _install_toolchain_from_github(self, toolchain: str = "stable") -> bool:
+        """Install a Lean toolchain from a GitHub release archive.
+
+        Downloads the official lean4 release ZIP for this platform, extracts
+        it under the app directory, and registers it via `elan toolchain
+        link` + `elan default`. Works on networks where release.lean-lang.org
+        is unreachable but github.com is.
+        """
+        if toolchain.strip() in ("stable", ""):
+            version = self._resolve_latest_lean_version()
+        else:
+            version = self._parse_lean4_version(toolchain)
+        if not version:
+            logger.error(f"GitHub fallback cannot handle toolchain spec: {toolchain!r}")
+            return False
+
+        arch = "_aarch64" if platform.machine().lower() in ("arm64", "aarch64") else ""
+        asset = f"lean-{version.lstrip('v')}-{self._system}{arch}.zip"
+        url = f"{self.LEAN4_RELEASES_URL}/download/{version}/{asset}"
+
+        self.ensure_directories()
+        archive = self.cache_dir / asset
+        if not archive.exists():
+            try:
+                _download_with_progress(url, archive, label=f"Downloading {asset}")
+            except Exception as e:
+                logger.error(f"Failed to download {url}: {e}")
+                archive.unlink(missing_ok=True)
+                return False
+
+        dest = self.app_dir / "toolchains" / archive.name[:-len(".zip")]
+        try:
+            _extract_zip_with_permissions(archive, dest)
+        except Exception as e:
+            logger.error(f"Failed to extract {archive}: {e}")
+            return False
+
+        # The archive contains a single top-level directory holding bin/lean
+        toolchain_root = dest if (dest / "bin").is_dir() else next(
+            (p for p in sorted(dest.iterdir()) if (p / "bin").is_dir()), None
+        )
+        if toolchain_root is None:
+            logger.error(f"No bin/ directory found in extracted archive at {dest}")
+            return False
+
+        name = f"leanprover/lean4:{version}"
+        for cmd in (
+            ["elan", "toolchain", "link", name, str(toolchain_root)],
+            ["elan", "default", name],
+        ):
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=60,
+                    env=self._get_env(),
+                )
+            except Exception as e:
+                logger.error(f"Error running {' '.join(cmd)}: {e}")
+                return False
+            if result.returncode != 0:
+                logger.error(f"{' '.join(cmd[:3])} failed: {result.stderr}")
+                return False
+
+        logger.info(f"Toolchain {name} installed from GitHub release")
+        return True
 
     def read_toolchain_file(self, repo_path: Path) -> Optional[str]:
         """Read and parse the lean-toolchain file from a repository.

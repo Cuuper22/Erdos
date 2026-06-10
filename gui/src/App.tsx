@@ -7,7 +7,7 @@ import SolutionsGallery from './components/SolutionsGallery'
 
 interface Settings {
   apiKey: string
-  provider: 'openai' | 'anthropic' | 'google' | 'ollama'
+  provider: 'openai' | 'anthropic' | 'google' | 'openrouter' | 'ollama'
   model: string
   maxCost: number
   ollamaUrl: string
@@ -118,7 +118,8 @@ function App() {
           setIsRunning(false)
         }
       }),
-    ]
+      // Outside Tauri (e.g. plain-browser preview) listen() rejects; degrade to a no-op
+    ].map(p => p.catch(() => () => {}))
 
     return () => {
       unlisteners.forEach(p => p.then(fn => fn()))

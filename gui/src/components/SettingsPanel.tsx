@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 interface Settings {
   apiKey: string
-  provider: 'openai' | 'anthropic' | 'google' | 'ollama'
+  provider: 'openai' | 'anthropic' | 'google' | 'openrouter' | 'ollama'
   model: string
   maxCost: number
   ollamaUrl: string
@@ -17,6 +17,7 @@ const PROVIDER_MODELS: Record<Settings['provider'], string[]> = {
   google: ['gemini-3-flash', 'gemini-3-pro', 'gemini-2.5-flash'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
   anthropic: ['claude-sonnet-4-6', 'claude-haiku-4-5'],
+  openrouter: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro', 'openai/gpt-4o-mini', 'deepseek/deepseek-chat'],
   ollama: ['llama3.3', 'codellama', 'mistral', 'qwen2.5-coder'],
 }
 
@@ -24,6 +25,7 @@ const PROVIDER_LABELS: Record<Settings['provider'], string> = {
   google: 'Google (Gemini)',
   openai: 'OpenAI',
   anthropic: 'Anthropic',
+  openrouter: 'OpenRouter',
   ollama: 'Ollama (Local)',
 }
 

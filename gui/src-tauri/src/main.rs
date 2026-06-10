@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -9,7 +10,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{State, Window};
-use log::{info, warn};
 
 // ── Event types emitted to the frontend ──
 
@@ -47,7 +47,7 @@ struct AttemptResultEvent {
 
 #[derive(Clone, Serialize)]
 struct MiningStatusEvent {
-    status: String,  // "started", "stopped", "crashed", "completed"
+    status: String, // "started", "stopped", "crashed", "completed"
     message: String,
     exit_code: Option<i32>,
 }
@@ -58,7 +58,7 @@ struct MiningStatusEvent {
 #[serde(rename_all = "camelCase")]
 struct Settings {
     api_key: String,
-    provider: String,  // "openai", "anthropic", "google", "ollama"
+    provider: String, // "openai", "anthropic", "google", "openrouter", "ollama"
     model: String,
     max_cost: f64,
     ollama_url: String,
@@ -68,7 +68,7 @@ struct Settings {
 
 struct MiningState {
     is_running: AtomicBool,
-    child: Mutex<Option<u32>>,  // PID of the running process
+    child: Mutex<Option<u32>>, // PID of the running process
 }
 
 // ── Helper: emit a log event ──
@@ -97,63 +97,132 @@ fn parse_and_emit_json_line(window: &Window, line: &str) {
     let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
     match parsed {
         Ok(value) => {
-            let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let event_type = value
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             match event_type {
                 "log" => {
                     emit_log(
                         window,
-                        value.get("level").and_then(|v| v.as_str()).unwrap_or("info"),
+                        value
+                            .get("level")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("info"),
                         value.get("message").and_then(|v| v.as_str()).unwrap_or(""),
                     );
                 }
                 "cost_update" => {
                     let event = CostUpdateEvent {
-                        cost_usd: value.get("cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        total_spent_usd: value.get("total_spent_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        remaining_usd: value.get("remaining_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        input_tokens: value.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                        output_tokens: value.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                        cost_usd: value
+                            .get("cost_usd")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0),
+                        total_spent_usd: value
+                            .get("total_spent_usd")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0),
+                        remaining_usd: value
+                            .get("remaining_usd")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0),
+                        input_tokens: value
+                            .get("input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        output_tokens: value
+                            .get("output_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
                     };
                     let _ = window.emit("cost-update", event);
                 }
                 "solution_found" => {
                     let event = SolutionFoundEvent {
-                        problem_id: value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        attempts: value.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                        proof_preview: value.get("proof_preview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        is_elegant: value.get("is_elegant").and_then(|v| v.as_bool()).unwrap_or(false),
+                        problem_id: value
+                            .get("problem_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        attempts: value.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0)
+                            as i32,
+                        proof_preview: value
+                            .get("proof_preview")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        is_elegant: value
+                            .get("is_elegant")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
                     };
                     let _ = window.emit("solution-found", event);
                 }
                 "attempt_result" => {
                     let event = AttemptResultEvent {
-                        problem_id: value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        problem_id: value
+                            .get("problem_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         attempt: value.get("attempt").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                        status: value.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        message: value.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        status: value
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        message: value
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                     };
                     let _ = window.emit("attempt-result", event);
                 }
                 "problem_started" => {
-                    emit_log(window, "info", &format!(
-                        "Starting problem: {}",
-                        value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("?")
-                    ));
+                    emit_log(
+                        window,
+                        "info",
+                        &format!(
+                            "Starting problem: {}",
+                            value
+                                .get("problem_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?")
+                        ),
+                    );
                 }
                 "problem_failed" => {
-                    emit_log(window, "warning", &format!(
-                        "Problem {} failed after {} attempts",
-                        value.get("problem_id").and_then(|v| v.as_str()).unwrap_or("?"),
-                        value.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0),
-                    ));
+                    emit_log(
+                        window,
+                        "warning",
+                        &format!(
+                            "Problem {} failed after {} attempts",
+                            value
+                                .get("problem_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?"),
+                            value.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0),
+                        ),
+                    );
                 }
                 "mining_complete" => {
-                    emit_log(window, "success", &format!(
-                        "Mining complete: {}/{} solved, ${:.4} spent",
-                        value.get("solved").and_then(|v| v.as_i64()).unwrap_or(0),
-                        value.get("total_problems").and_then(|v| v.as_i64()).unwrap_or(0),
-                        value.get("total_cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                    ));
+                    emit_log(
+                        window,
+                        "success",
+                        &format!(
+                            "Mining complete: {}/{} solved, ${:.4} spent",
+                            value.get("solved").and_then(|v| v.as_i64()).unwrap_or(0),
+                            value
+                                .get("total_problems")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0),
+                            value
+                                .get("total_cost_usd")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.0),
+                        ),
+                    );
                 }
                 _ => {
                     // Unknown event type — emit as raw log
@@ -195,10 +264,18 @@ async fn setup_environment(window: Window) -> Result<bool, String> {
     match Command::new(python_cmd).arg("--version").output() {
         Ok(output) => {
             let version = String::from_utf8_lossy(&output.stdout);
-            emit_log(&window, "success", &format!("Python found: {}", version.trim()));
+            emit_log(
+                &window,
+                "success",
+                &format!("Python found: {}", version.trim()),
+            );
         }
         Err(_) => {
-            emit_log(&window, "error", "Python 3 not found. Please install Python 3.11+");
+            emit_log(
+                &window,
+                "error",
+                "Python 3 not found. Please install Python 3.11+",
+            );
             return Err("Python not found".to_string());
         }
     }
@@ -216,12 +293,20 @@ async fn setup_environment(window: Window) -> Result<bool, String> {
                 emit_log(&window, "success", "Environment setup complete!");
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                emit_log(&window, "warning", &format!("Setup completed with warnings: {}", stderr));
+                emit_log(
+                    &window,
+                    "warning",
+                    &format!("Setup completed with warnings: {}", stderr),
+                );
             }
             Ok(true)
         }
         Err(e) => {
-            emit_log(&window, "warning", &format!("Setup script error: {}. Manual setup may be required.", e));
+            emit_log(
+                &window,
+                "warning",
+                &format!("Setup script error: {}. Manual setup may be required.", e),
+            );
             Ok(true)
         }
     }
@@ -240,10 +325,14 @@ async fn start_mining(
     state.is_running.store(true, Ordering::SeqCst);
     emit_status(&window, "started", "Mining session starting", None);
 
-    emit_log(&window, "info", &format!(
-        "Starting mining with {} / {} (budget: ${:.2})",
-        settings.provider, settings.model, settings.max_cost
-    ));
+    emit_log(
+        &window,
+        "info",
+        &format!(
+            "Starting mining with {} / {} (budget: ${:.2})",
+            settings.provider, settings.model, settings.max_cost
+        ),
+    );
 
     // Try sidecar binary first, fall back to Python
     let exe_dir = std::env::current_exe()
@@ -274,26 +363,40 @@ async fn start_mining(
         };
         emit_log(&window, "info", &format!("Using Python: {}", python_cmd));
         let mut c = Command::new(python_cmd);
-        c.args(["-m", "src.solver", "--manifest", "manifest.json", "--json-logs"])
-            .current_dir("..");
+        c.args([
+            "-m",
+            "src.solver",
+            "--manifest",
+            "manifest.json",
+            "--json-logs",
+        ])
+        .current_dir("..");
         c
     };
 
-    cmd.stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     // Set provider-specific env vars
     cmd.env("MAX_COST_USD", settings.max_cost.to_string());
     cmd.env("LLM_MODEL", &settings.model);
 
     match settings.provider.as_str() {
-        "openai" => { cmd.env("OPENAI_API_KEY", &settings.api_key); }
-        "anthropic" => { cmd.env("ANTHROPIC_API_KEY", &settings.api_key); }
+        "openai" => {
+            cmd.env("OPENAI_API_KEY", &settings.api_key);
+        }
+        "anthropic" => {
+            cmd.env("ANTHROPIC_API_KEY", &settings.api_key);
+        }
         "google" => {
             cmd.env("GEMINI_API_KEY", &settings.api_key);
             cmd.env("GOOGLE_API_KEY", &settings.api_key);
         }
-        "ollama" => { cmd.env("OLLAMA_URL", &settings.ollama_url); }
+        "openrouter" => {
+            cmd.env("OPENROUTER_API_KEY", &settings.api_key);
+        }
+        "ollama" => {
+            cmd.env("OLLAMA_URL", &settings.ollama_url);
+        }
         _ => {}
     }
 
@@ -340,9 +443,13 @@ async fn start_mining(
         for line in reader.lines() {
             match line {
                 Ok(line) if !line.trim().is_empty() => {
-                    let level = if line.to_lowercase().contains("error") { "error" }
-                        else if line.to_lowercase().contains("warning") { "warning" }
-                        else { "info" };
+                    let level = if line.to_lowercase().contains("error") {
+                        "error"
+                    } else if line.to_lowercase().contains("warning") {
+                        "warning"
+                    } else {
+                        "info"
+                    };
                     emit_log(&window_clone2, level, &line);
                 }
                 _ => {}
@@ -372,8 +479,17 @@ async fn start_mining(
                 emit_status(&window, "completed", "Mining session completed", code);
                 emit_log(&window, "success", "Mining session completed successfully!");
             } else {
-                emit_status(&window, "crashed", &format!("Process exited with code {:?}", code), code);
-                emit_log(&window, "error", &format!("Mining process exited with code {:?}", code));
+                emit_status(
+                    &window,
+                    "crashed",
+                    &format!("Process exited with code {:?}", code),
+                    code,
+                );
+                emit_log(
+                    &window,
+                    "error",
+                    &format!("Mining process exited with code {:?}", code),
+                );
             }
         }
         Err(e) => {
@@ -386,10 +502,7 @@ async fn start_mining(
 }
 
 #[tauri::command]
-fn stop_mining(
-    window: Window,
-    state: State<'_, Arc<MiningState>>,
-) -> Result<(), String> {
+fn stop_mining(window: Window, state: State<'_, Arc<MiningState>>) -> Result<(), String> {
     if !state.is_running.load(Ordering::SeqCst) {
         return Ok(());
     }
@@ -400,7 +513,11 @@ fn stop_mining(
     };
 
     if let Some(pid) = pid {
-        emit_log(&window, "info", &format!("Stopping mining process (PID {})", pid));
+        emit_log(
+            &window,
+            "info",
+            &format!("Stopping mining process (PID {})", pid),
+        );
 
         // Platform-specific process kill
         #[cfg(target_os = "windows")]

@@ -42,7 +42,10 @@ jobs:
 
   rust-tests:
     name: Rust Tests
-    runs-on: ubuntu-latest
+    # Tauri v1 links against webkit2gtk-4.0, which no longer exists on
+    # Ubuntu 24.04 (ubuntu-latest). Stay on 22.04 until the GUI moves to
+    # Tauri v2 / webkit2gtk-4.1.
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository
@@ -50,11 +53,24 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Create stub frontend dist and sidecar
+        # tauri-build resolves `distDir` and `externalBin` at compile time,
+        # but both are gitignored build outputs. Stub them so cargo can
+        # compile without a frontend/PyInstaller build (build.yml exercises
+        # the real artifacts).
+        run: |
+          mkdir -p gui/dist gui/src-tauri/binaries
+          host_triple="$(rustc -Vv | sed -n 's/^host: //p')"
+          touch "gui/src-tauri/binaries/erdos-solver-${host_triple}"
+          chmod +x "gui/src-tauri/binaries/erdos-solver-${host_triple}"
 
       - name: Check Rust formatting
         working-directory: gui/src-tauri

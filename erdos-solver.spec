@@ -6,8 +6,23 @@ The resulting binary is used as a Tauri sidecar — the GUI launches it as a
 subprocess and communicates via JSON Lines on stdout.
 """
 
-import sys
+import os
+
 from PyInstaller.utils.hooks import collect_submodules
+
+# src/solver.py uses package-relative imports, so it cannot be the entry
+# script itself (PyInstaller runs the entry script as __main__, which has no
+# parent package). Generate a tiny absolute-import launcher in the build
+# workpath instead. `workpath` and `SPECPATH` are provided by PyInstaller.
+os.makedirs(workpath, exist_ok=True)
+launcher = os.path.join(workpath, 'erdos-solver-launcher.py')
+with open(launcher, 'w', encoding='utf-8') as f:
+    f.write(
+        'from src.solver import main\n'
+        '\n'
+        'if __name__ == "__main__":\n'
+        '    main()\n'
+    )
 
 # Collect all submodules for providers that use dynamic imports
 hidden_imports = [
@@ -26,8 +41,10 @@ hidden_imports = [
     'src.llm',
     'src.llm.factory',
     'src.llm.base',
+    'src.llm.mock',
     'src.llm.openai_provider',
     'src.llm.anthropic_provider',
+    'src.llm.chatgpt_provider',
     'src.llm.gemini',
     'src.llm.ollama_provider',
     # Third-party with dynamic imports
@@ -55,8 +72,8 @@ except Exception:
     pass
 
 a = Analysis(
-    ['src/solver.py'],
-    pathex=['.'],
+    [launcher],
+    pathex=[SPECPATH],
     binaries=[],
     datas=[
         ('manifest.json', '.'),

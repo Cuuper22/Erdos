@@ -30,7 +30,7 @@ It supports multiple LLM backends - OpenRouter (recommended: one key, any model)
 
 It ships as a desktop app. Tauri GUI with settings panel, log viewer, cost tracking, and proof gallery. Or just use the CLI.
 
-It's a single-person project with 320+ test functions across 14 test files. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
+It's a single-person project with 342 test functions across 15 test files. CI is configured for Python 3.10-3.12 plus Rust build/test checks for the GUI. Not a research lab with a team of 20.
 
 ## How to inspect it
 
@@ -192,7 +192,7 @@ Erdos/
 ├── gui/                        # Tauri desktop app
 │   ├── src/                    # React frontend
 │   └── src-tauri/              # Rust backend (IPC, process management)
-├── tests/                      # 320+ test functions across 14 test files
+├── tests/                      # 342 test functions across 15 test files
 ├── manifest.json               # Problem queue (local example problems)
 ├── manifest.remote.json        # Sample remote-campaign manifest format (not consumed by code)
 └── .github/workflows/          # CI: pytest (3.10-3.12) + Rust build/test + linting
@@ -204,7 +204,7 @@ Erdos/
 pytest tests/ -v
 ```
 
-320+ test functions across 14 test files:
+342 test functions across 15 test files:
 
 | Module | What it covers |
 |--------|---------------|

@@ -21,7 +21,6 @@ from src.llm import MockLLMProvider
 from src.sandbox import _discover_elan_bin
 from src.config import Config
 
-
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 
@@ -42,7 +41,7 @@ class TestManifestPathResolution(unittest.TestCase):
         for p in problems:
             self.assertTrue(
                 Path(p.path).exists(),
-                f"Problem {p.id}: resolved path does not exist: {p.path}"
+                f"Problem {p.id}: resolved path does not exist: {p.path}",
             )
 
     def test_examples_manifest_loads_with_resolved_paths(self):
@@ -54,7 +53,7 @@ class TestManifestPathResolution(unittest.TestCase):
         for p in problems:
             self.assertTrue(
                 Path(p.path).exists(),
-                f"Problem {p.id}: resolved path does not exist: {p.path}"
+                f"Problem {p.id}: resolved path does not exist: {p.path}",
             )
 
     def test_original_content_is_preloaded(self):
@@ -65,10 +64,13 @@ class TestManifestPathResolution(unittest.TestCase):
         for p in problems:
             self.assertIsNotNone(
                 p.original_content,
-                f"Problem {p.id}: original_content should be pre-loaded"
+                f"Problem {p.id}: original_content should be pre-loaded",
             )
-            self.assertIn("sorry", p.original_content,
-                          f"Problem {p.id}: content should contain sorry")
+            self.assertIn(
+                "sorry",
+                p.original_content,
+                f"Problem {p.id}: content should contain sorry",
+            )
 
     def test_custom_manifest_with_relative_paths(self):
         """A manifest in a subdirectory resolves paths relative to itself."""
@@ -123,7 +125,7 @@ class TestRootManifestIsUsable(unittest.TestCase):
             resolved = PROJECT_ROOT / p["path"]
             self.assertTrue(
                 resolved.exists(),
-                f"manifest.json references non-existent file: {p['path']}"
+                f"manifest.json references non-existent file: {p['path']}",
             )
 
     def test_remote_manifest_preserved(self):
@@ -168,8 +170,13 @@ class TestGeminiGracefulFailure(unittest.TestCase):
             env = {
                 "GEMINI_API_KEY": "fake-key",
             }
-            for key in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_URL",
-                         "GOOGLE_API_KEY", "ERDOS_MOCK_MODE"]:
+            for key in [
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "OLLAMA_URL",
+                "GOOGLE_API_KEY",
+                "ERDOS_MOCK_MODE",
+            ]:
                 env[key] = ""
 
             with patch.dict(os.environ, env, clear=False):
@@ -181,11 +188,18 @@ class TestGeminiGracefulFailure(unittest.TestCase):
     def test_factory_falls_back_to_mock(self):
         """create_provider falls back to MockLLMProvider when no providers work."""
         config = Config()
-        with patch.dict(os.environ, {
-            "GEMINI_API_KEY": "", "GOOGLE_API_KEY": "",
-            "OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": "",
-            "OLLAMA_URL": "", "ERDOS_MOCK_MODE": "1",
-        }, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY": "",
+                "GOOGLE_API_KEY": "",
+                "OPENAI_API_KEY": "",
+                "ANTHROPIC_API_KEY": "",
+                "OLLAMA_URL": "",
+                "ERDOS_MOCK_MODE": "1",
+            },
+            clear=False,
+        ):
             provider = create_provider(config)
             self.assertIsInstance(provider, MockLLMProvider)
 
@@ -220,8 +234,9 @@ class TestIntermediateTheorems(unittest.TestCase):
         intermediate = PROJECT_ROOT / "examples" / "intermediate.lean"
         content = intermediate.read_text()
         theorem_count = content.count("theorem ")
-        self.assertGreaterEqual(theorem_count, 5,
-                                 f"Expected 5+ theorems, found {theorem_count}")
+        self.assertGreaterEqual(
+            theorem_count, 5, f"Expected 5+ theorems, found {theorem_count}"
+        )
 
     def test_intermediate_has_sorry_placeholders(self):
         intermediate = PROJECT_ROOT / "examples" / "intermediate.lean"
@@ -237,8 +252,9 @@ class TestIntermediateTheorems(unittest.TestCase):
                 data = json.load(f)
             paths = [p["path"] for p in data["priority_problems"]]
             has_intermediate = any("intermediate" in p for p in paths)
-            self.assertTrue(has_intermediate,
-                            f"{manifest_name} should include intermediate.lean")
+            self.assertTrue(
+                has_intermediate, f"{manifest_name} should include intermediate.lean"
+            )
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -252,10 +268,12 @@ class TestSetupFlag(unittest.TestCase):
     def test_setup_flag_in_argparse(self):
         """Verify --setup is a valid CLI argument."""
         import argparse
+
         # Import and check the parser accepts --setup
         # We test indirectly by checking the source
         from src.solver import main
         import inspect
+
         source = inspect.getsource(main)
         self.assertIn("--setup", source)
         self.assertIn("EnvironmentManager", source)

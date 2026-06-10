@@ -25,19 +25,30 @@ from unittest.mock import MagicMock
 
 from src.config import Config
 from src.solver import (
-    AgentProver, AgentCritic, Solver, Problem, ProofArtifact, Critique,
+    AgentProver,
+    AgentCritic,
+    Solver,
+    Problem,
+    ProofArtifact,
+    Critique,
 )
 from src.validator import (
-    extract_theorem_statement, compute_theorem_hash,
-    validate_theorem_integrity, run_security_check, TheoremLocker,
+    extract_theorem_statement,
+    compute_theorem_hash,
+    validate_theorem_integrity,
+    run_security_check,
+    TheoremLocker,
 )
 from src.sandbox import (
-    Sandbox, SandboxManager, BuildResult, run_lake_build,
-    _discover_elan_bin, _elan_env,
+    Sandbox,
+    SandboxManager,
+    BuildResult,
+    run_lake_build,
+    _discover_elan_bin,
+    _elan_env,
 )
 from src.packager import package_artifact, list_solutions, get_solution
 from src.llm import LLMProvider, MockLLMProvider
-
 
 # ═══════════════════════════════════════════════════════════════════
 # Real Lean 4 theorem data — externally valid, not from this project
@@ -127,7 +138,9 @@ LEAN_ENV = _elan_env(_ELAN_BIN)
 try:
     result = subprocess.run(
         [LEAN_PATH, "--version"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
         env=LEAN_ENV,
     )
     LEAN_AVAILABLE = result.returncode == 0
@@ -144,7 +157,8 @@ def _setup_lean_project():
         subprocess.run(
             [LAKE_PATH, "init", "RealTest"],
             cwd=LEAN_PROJECT_DIR,
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
             env=LEAN_ENV,
         )
 
@@ -160,7 +174,8 @@ def _build_lean_file(content: str, filename: str = "Test.lean") -> BuildResult:
         result = subprocess.run(
             [LAKE_PATH, "build"],
             cwd=LEAN_PROJECT_DIR,
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             timeout=120,
             env=LEAN_ENV,
         )
@@ -174,8 +189,12 @@ def _build_lean_file(content: str, filename: str = "Test.lean") -> BuildResult:
         )
     except subprocess.TimeoutExpired:
         return BuildResult(
-            success=False, stdout="", stderr="Timeout",
-            return_code=-1, duration_seconds=120, timeout_occurred=True,
+            success=False,
+            stdout="",
+            stderr="Timeout",
+            return_code=-1,
+            duration_seconds=120,
+            timeout_occurred=True,
         )
 
 
@@ -186,27 +205,44 @@ def _build_lean_file(content: str, filename: str = "Test.lean") -> BuildResult:
 
 class RealCorrectProvider(LLMProvider):
     """Returns proofs that ACTUALLY COMPILE in Lean 4."""
-    def generate(self, prompt: str, temperature: float = 0.7,
-                 max_tokens: int = 4096) -> tuple[str, int, int]:
+
+    def generate(
+        self, prompt: str, temperature: float = 0.7, max_tokens: int = 4096
+    ) -> tuple[str, int, int]:
         if "one_plus_one" in prompt or "1 + 1 = 2" in prompt:
             return CORRECT_PROOF, 100, 20
         if "add_zero" in prompt:
             return MULTI_THEOREM_CORRECT, 200, 50
         # Critic response
-        if "review" in prompt.lower() or "evaluate" in prompt.lower() or "code review" in prompt.lower():
-            return json.dumps({
-                "status": "PASS", "feedback": "Correct",
-                "is_elegant": True, "security_concerns": []
-            }), 100, 30
+        if (
+            "review" in prompt.lower()
+            or "evaluate" in prompt.lower()
+            or "code review" in prompt.lower()
+        ):
+            return (
+                json.dumps(
+                    {
+                        "status": "PASS",
+                        "feedback": "Correct",
+                        "is_elegant": True,
+                        "security_concerns": [],
+                    }
+                ),
+                100,
+                30,
+            )
         return "by sorry", 50, 10
 
 
 class RealCheatingProvider(LLMProvider):
     """Returns proofs that cheat in various ways."""
+
     def __init__(self, strategy: str):
         self.strategy = strategy
-    def generate(self, prompt: str, temperature: float = 0.7,
-                 max_tokens: int = 4096) -> tuple[str, int, int]:
+
+    def generate(
+        self, prompt: str, temperature: float = 0.7, max_tokens: int = 4096
+    ) -> tuple[str, int, int]:
         cheats = {
             "weaken": CHEATED_WEAKENED,
             "sorry": CHEATED_SORRY,
@@ -214,10 +250,18 @@ class RealCheatingProvider(LLMProvider):
             "io": CHEATED_IO,
         }
         if "review" in prompt.lower() or "code review" in prompt.lower():
-            return json.dumps({
-                "status": "PASS", "feedback": "ok",
-                "is_elegant": True, "security_concerns": []
-            }), 100, 30
+            return (
+                json.dumps(
+                    {
+                        "status": "PASS",
+                        "feedback": "ok",
+                        "is_elegant": True,
+                        "security_concerns": [],
+                    }
+                ),
+                100,
+                30,
+            )
         return cheats.get(self.strategy, "by sorry"), 100, 20
 
 
@@ -233,16 +277,20 @@ class TestRealLeanCompilation(unittest.TestCase):
     def test_correct_proof_compiles(self):
         """A known-correct proof should compile successfully."""
         result = _build_lean_file(CORRECT_PROOF, "CorrectTest.lean")
-        self.assertTrue(result.success,
-                        f"CRITICAL: Known-correct proof FAILED to compile!\n"
-                        f"stderr: {result.stderr}")
+        self.assertTrue(
+            result.success,
+            f"CRITICAL: Known-correct proof FAILED to compile!\n"
+            f"stderr: {result.stderr}",
+        )
 
     def test_sorry_proof_compiles_with_warning(self):
         """Sorry is valid Lean — it should compile (with warnings)."""
         result = _build_lean_file(THEOREM_WITH_SORRY, "SorryTest.lean")
         # sorry compiles but produces a warning
-        self.assertTrue(result.success or "sorry" in result.stderr.lower(),
-                        f"Sorry proof didn't behave as expected: {result.stderr}")
+        self.assertTrue(
+            result.success or "sorry" in result.stderr.lower(),
+            f"Sorry proof didn't behave as expected: {result.stderr}",
+        )
 
     def test_FIXED_erdos_sandbox_finds_lake_via_discovery(self):
         """FIXED: run_lake_build() now uses _discover_elan_bin() to find
@@ -254,18 +302,18 @@ class TestRealLeanCompilation(unittest.TestCase):
 
         # Remove elan from PATH to simulate fresh install
         import os
+
         old_path = os.environ.get("PATH", "")
-        clean_path = ":".join(
-            p for p in old_path.split(":")
-            if ".elan" not in p
-        )
+        clean_path = ":".join(p for p in old_path.split(":") if ".elan" not in p)
         os.environ["PATH"] = clean_path
 
         try:
             result = run_lake_build(LEAN_PROJECT_DIR, timeout_seconds=120)
             # With _discover_elan_bin, lake should be found via ~/.elan/bin/
-            self.assertTrue(result.success,
-                            f"run_lake_build should find lake via discovery: {result.stderr}")
+            self.assertTrue(
+                result.success,
+                f"run_lake_build should find lake via discovery: {result.stderr}",
+            )
         finally:
             os.environ["PATH"] = old_path
 
@@ -276,20 +324,22 @@ class TestRealLeanCompilation(unittest.TestCase):
         test_file.write_text(CORRECT_PROOF)
 
         import os
+
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{LEAN_BIN}:{old_path}"
         try:
             result = run_lake_build(LEAN_PROJECT_DIR, timeout_seconds=120)
-            self.assertTrue(result.success,
-                            f"run_lake_build failed even with elan in PATH: {result.stderr}")
+            self.assertTrue(
+                result.success,
+                f"run_lake_build failed even with elan in PATH: {result.stderr}",
+            )
         finally:
             os.environ["PATH"] = old_path
 
     def test_multi_theorem_compiles(self):
         """Multiple correct theorems in one file should all compile."""
         result = _build_lean_file(MULTI_THEOREM_CORRECT, "MultiTest.lean")
-        self.assertTrue(result.success,
-                        f"Multi-theorem file failed: {result.stderr}")
+        self.assertTrue(result.success, f"Multi-theorem file failed: {result.stderr}")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -335,10 +385,12 @@ class TestFullEndToEndWithRealCompiler(unittest.TestCase):
             # Verify the proof ACTUALLY compiles
             sorry_file.write_text(result.proof_content)
             build = _build_lean_file(result.proof_content, "Pipeline.lean")
-            self.assertTrue(build.success,
-                            f"CRITICAL: Produced proof does NOT compile!\n"
-                            f"proof: {result.proof_content}\n"
-                            f"stderr: {build.stderr}")
+            self.assertTrue(
+                build.success,
+                f"CRITICAL: Produced proof does NOT compile!\n"
+                f"proof: {result.proof_content}\n"
+                f"stderr: {build.stderr}",
+            )
         else:
             # The solver couldn't complete — investigate why
             # This is expected if the sandbox path doesn't match
@@ -369,8 +421,10 @@ class TestFullEndToEndWithRealCompiler(unittest.TestCase):
                 )
 
                 result = solver.process_problem(problem)
-                self.assertIsNone(result,
-                                  f"CRITICAL: Cheating strategy '{strategy}' produced an artifact!")
+                self.assertIsNone(
+                    result,
+                    f"CRITICAL: Cheating strategy '{strategy}' produced an artifact!",
+                )
                 solver.cleanup()
 
 
@@ -385,35 +439,34 @@ class TestRealCheatingDetection(unittest.TestCase):
     def test_weakened_theorem_caught(self):
         """Changing '1+1=2' to 'True' must be detected."""
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CHEATED_WEAKENED)
-        self.assertFalse(result.is_valid,
-                         "CRITICAL: Weakened theorem NOT caught!")
+        self.assertFalse(result.is_valid, "CRITICAL: Weakened theorem NOT caught!")
 
     def test_sorry_left_in_caught(self):
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CHEATED_SORRY)
-        self.assertFalse(result.is_valid,
-                         "CRITICAL: Sorry left in proof NOT caught!")
+        self.assertFalse(result.is_valid, "CRITICAL: Sorry left in proof NOT caught!")
 
     def test_axiom_abuse_IS_caught(self):
         """FIXED: The axiom regex now bans ALL axiom usage in proof candidates.
         Previously, declaration-form axioms like 'axiom my_cheat : P' slipped
         through due to a negative lookahead in the regex. Now fixed."""
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CHEATED_AXIOM)
-        self.assertFalse(result.is_valid,
-                         "CRITICAL: Axiom abuse should be caught after fix!")
+        self.assertFalse(
+            result.is_valid, "CRITICAL: Axiom abuse should be caught after fix!"
+        )
         self.assertTrue(
             any("axiom" in e.lower() for e in result.errors),
-            f"Error should mention axiom: {result.errors}"
+            f"Error should mention axiom: {result.errors}",
         )
 
     def test_io_escape_caught(self):
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CHEATED_IO)
-        self.assertFalse(result.is_valid,
-                         "CRITICAL: IO escape NOT caught!")
+        self.assertFalse(result.is_valid, "CRITICAL: IO escape NOT caught!")
 
     def test_correct_proof_passes(self):
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, CORRECT_PROOF)
-        self.assertTrue(result.is_valid,
-                        f"Correct proof falsely rejected: {result.errors}")
+        self.assertTrue(
+            result.is_valid, f"Correct proof falsely rejected: {result.errors}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -436,15 +489,20 @@ class TestProverOutputQuality(unittest.TestCase):
 
         # Integrity check should pass
         result = validate_theorem_integrity(THEOREM_WITH_SORRY, candidate)
-        self.assertTrue(result.is_valid,
-                        f"Prover output failed integrity: {result.errors}")
+        self.assertTrue(
+            result.is_valid, f"Prover output failed integrity: {result.errors}"
+        )
 
     def test_clean_response_with_markdown_fences(self):
         """LLMs often wrap code in ```lean ... ```. Does cleaning handle this?"""
 
         class MarkdownProvider(LLMProvider):
             def generate(self, prompt, temperature=0.7, max_tokens=4096):
-                return "```lean\ntheorem one_plus_one : 1 + 1 = 2 := by\n  rfl\n```", 100, 20
+                return (
+                    "```lean\ntheorem one_plus_one : 1 + 1 = 2 := by\n  rfl\n```",
+                    100,
+                    20,
+                )
 
         prover = AgentProver(MarkdownProvider(), temperature=0.7)
         candidate, _, _ = prover.generate(THEOREM_WITH_SORRY)
@@ -472,11 +530,13 @@ class TestProverOutputQuality(unittest.TestCase):
         comment_input = "-- replace sorry with proof\ntheorem one_plus_one : 1 + 1 = 2 := by\n  sorry\n"
         candidate2, _, _ = prover.generate(comment_input)
         # FIXED: comment sorry is preserved, proof body sorry is replaced
-        self.assertIn("-- replace sorry with proof", candidate2,
-                       "Comment should be preserved")
+        self.assertIn(
+            "-- replace sorry with proof", candidate2, "Comment should be preserved"
+        )
         proof_body = candidate2.split(":= by")[1]
-        self.assertNotIn("sorry", proof_body,
-                          "Proof body sorry should be replaced with rfl")
+        self.assertNotIn(
+            "sorry", proof_body, "Proof body sorry should be replaced with rfl"
+        )
         self.assertIn("rfl", proof_body)
 
     def test_multi_theorem_prover_output(self):
@@ -498,10 +558,12 @@ class TestProverOutputQuality(unittest.TestCase):
                 prover = AgentProver(RealCheatingProvider(strategy), temperature=0.7)
                 candidate, _, _ = prover.generate(THEOREM_WITH_SORRY)
                 result = validate_theorem_integrity(THEOREM_WITH_SORRY, candidate)
-                self.assertFalse(result.is_valid,
-                                 f"Strategy '{strategy}' passed integrity!\n"
-                                 f"candidate: {candidate!r}\n"
-                                 f"errors: {result.errors}")
+                self.assertFalse(
+                    result.is_valid,
+                    f"Strategy '{strategy}' passed integrity!\n"
+                    f"candidate: {candidate!r}\n"
+                    f"errors: {result.errors}",
+                )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -520,15 +582,19 @@ class TestArtifactPackagingWithRealData(unittest.TestCase):
                 proof_content=CORRECT_PROOF,
                 build_logs="Build completed successfully",
                 critique=Critique(
-                    status="PASS", feedback="Correct proof using rfl",
-                    is_elegant=True, security_concerns=[],
+                    status="PASS",
+                    feedback="Correct proof using rfl",
+                    is_elegant=True,
+                    security_concerns=[],
                 ),
                 attempts=1,
             )
 
             zip_path = package_artifact(
-                artifact, output_dir=Path(tmpdir),
-                model_name="gpt-5.4", cost_usd=0.003,
+                artifact,
+                output_dir=Path(tmpdir),
+                model_name="gpt-5.4",
+                cost_usd=0.003,
             )
 
             with zipfile.ZipFile(zip_path) as zf:
@@ -566,8 +632,9 @@ class TestArtifactPackagingWithRealData(unittest.TestCase):
 
             # A downstream verifier should catch this
             security = run_security_check(proof)
-            self.assertFalse(security.is_safe,
-                             "Sorry proof passed security in packaged artifact!")
+            self.assertFalse(
+                security.is_safe, "Sorry proof passed security in packaged artifact!"
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -635,8 +702,11 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
             result = validate_theorem_integrity(THEOREM_WITH_SORRY, cheat)
             if not result.is_valid:
                 caught += 1
-        self.assertEqual(caught, len(strategies),
-                         f"Only caught {caught}/{len(strategies)} cheating strategies")
+        self.assertEqual(
+            caught,
+            len(strategies),
+            f"Only caught {caught}/{len(strategies)} cheating strategies",
+        )
 
     def test_theorem_locker_is_real(self):
         """TheoremLocker stores and verifies hashes — REAL functionality."""
@@ -658,12 +728,14 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
 
         # Add elan to PATH for this test
         import os
+
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{LEAN_BIN}:{old_path}"
         try:
             result = run_lake_build(LEAN_PROJECT_DIR, timeout_seconds=120)
-            self.assertTrue(result.success,
-                            f"run_lake_build failed on valid Lean: {result.stderr}")
+            self.assertTrue(
+                result.success, f"run_lake_build failed on valid Lean: {result.stderr}"
+            )
         finally:
             os.environ["PATH"] = old_path
 
@@ -678,10 +750,18 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
                     return CORRECT_PROOF, 100, 20
                 if "review" in prompt.lower() or "code review" in prompt.lower():
                     stages_hit.append("critic")
-                    return json.dumps({
-                        "status": "PASS", "feedback": "ok",
-                        "is_elegant": True, "security_concerns": []
-                    }), 100, 30
+                    return (
+                        json.dumps(
+                            {
+                                "status": "PASS",
+                                "feedback": "ok",
+                                "is_elegant": True,
+                                "security_concerns": [],
+                            }
+                        ),
+                        100,
+                        30,
+                    )
                 return "by sorry", 50, 10
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -704,8 +784,9 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
             solver.cleanup()
 
         # Prover MUST have been called
-        self.assertIn("prover", stages_hit,
-                       "Prover was never called — solver loop is broken!")
+        self.assertIn(
+            "prover", stages_hit, "Prover was never called — solver loop is broken!"
+        )
 
         # Critic may not be reached if build fails (no Lean), which is expected
         # But prover being called proves the loop structure is real
@@ -722,7 +803,7 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
         after_one = config.cost.current_spent
 
         self.assertGreater(after_one, initial)
-        expected = (1000/1000 * 0.01) + (500/1000 * 0.03)
+        expected = (1000 / 1000 * 0.01) + (500 / 1000 * 0.03)
         self.assertAlmostEqual(after_one, expected, places=6)
 
         # Budget enforcement
@@ -746,7 +827,9 @@ class TestIsThisRealOrScaffolding(unittest.TestCase):
             self.assertTrue(zipfile.is_zipfile(zip_path))
 
             with zipfile.ZipFile(zip_path) as zf:
-                self.assertEqual(len(zf.namelist()), 4)  # proof, build_log, critique, metadata
+                self.assertEqual(
+                    len(zf.namelist()), 4
+                )  # proof, build_log, critique, metadata
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -768,7 +851,9 @@ class TestBugsDiscovered(unittest.TestCase):
         This means: adding a comment like '-- my proof strategy' to the
         file will BREAK integrity verification, even though it's harmless."""
         original = "-- original comment\ntheorem foo : True := by sorry"
-        with_different_comment = "-- different comment\ntheorem foo : True := by trivial"
+        with_different_comment = (
+            "-- different comment\ntheorem foo : True := by trivial"
+        )
         no_comment = "theorem foo : True := by trivial"
 
         # Same theorem statement, different comments
@@ -778,10 +863,14 @@ class TestBugsDiscovered(unittest.TestCase):
 
         # These SHOULD be equal (theorem statement is the same)
         # But they ARE equal because comments are before 'theorem' keyword
-        self.assertEqual(h_original, h_different,
-                         "Comments before theorem affected hash (unexpected)")
-        self.assertEqual(h_original, h_no_comment,
-                         "Removing comments affected hash (unexpected)")
+        self.assertEqual(
+            h_original,
+            h_different,
+            "Comments before theorem affected hash (unexpected)",
+        )
+        self.assertEqual(
+            h_original, h_no_comment, "Removing comments affected hash (unexpected)"
+        )
 
     def test_FIXED_clean_response_replaces_correct_sorry(self):
         """FIXED: _clean_response now uses _replace_sorry_in_body() which
@@ -791,24 +880,21 @@ class TestBugsDiscovered(unittest.TestCase):
 
         # Input where sorry appears in comment first, then in proof body
         input_with_comment_sorry = (
-            "-- remove sorry here\n"
-            "theorem foo : True := by\n"
-            "  sorry\n"
+            "-- remove sorry here\n" "theorem foo : True := by\n" "  sorry\n"
         )
         # Simulate a tactic-only LLM response
         cleaned = prover._clean_response("trivial", input_with_comment_sorry)
 
         # Comment sorry should be preserved
-        self.assertIn("-- remove sorry here", cleaned,
-                       "Comment should be preserved")
+        self.assertIn("-- remove sorry here", cleaned, "Comment should be preserved")
         # Proof body sorry should be replaced
         lines_after_by = cleaned.split(":= by")
         self.assertTrue(len(lines_after_by) > 1)
         proof_body = lines_after_by[1]
-        self.assertNotIn("sorry", proof_body,
-                          "Proof body sorry should be replaced")
-        self.assertIn("trivial", proof_body,
-                       "Replacement tactic should be in proof body")
+        self.assertNotIn("sorry", proof_body, "Proof body sorry should be replaced")
+        self.assertIn(
+            "trivial", proof_body, "Replacement tactic should be in proof body"
+        )
 
     def test_FIXED_sandbox_discovers_elan_path(self):
         """FIXED: run_lake_build() now calls _discover_elan_bin() to find
@@ -817,11 +903,13 @@ class TestBugsDiscovered(unittest.TestCase):
         the system PATH."""
         from src.sandbox import _discover_elan_bin
         import inspect
+
         source = inspect.getsource(run_lake_build)
 
         # run_lake_build now calls _discover_elan_bin
-        self.assertIn("_discover_elan_bin", source,
-                       "run_lake_build should use _discover_elan_bin")
+        self.assertIn(
+            "_discover_elan_bin", source, "run_lake_build should use _discover_elan_bin"
+        )
 
         # Verify _discover_elan_bin checks the right paths
         elan_source = inspect.getsource(_discover_elan_bin)

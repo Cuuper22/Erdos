@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EnvironmentStatus:
     """Status of the Lean environment."""
+
     elan_installed: bool
     elan_version: Optional[str]
     lean_installed: bool
@@ -104,7 +105,9 @@ def _verify_checksum(file_path: Path, expected_sha256: str) -> bool:
             h.update(chunk)
     actual = h.hexdigest()
     if actual != expected_sha256:
-        logger.error(f"Checksum mismatch: expected {expected_sha256[:16]}..., got {actual[:16]}...")
+        logger.error(
+            f"Checksum mismatch: expected {expected_sha256[:16]}..., got {actual[:16]}..."
+        )
         return False
     return True
 
@@ -122,8 +125,12 @@ class EnvironmentManager:
     CACHE_DIR_NAME = "cache"
     REPOS_DIR_NAME = "repos"
 
-    ELAN_UNIX_URL = "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh"
-    ELAN_WINDOWS_URL = "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1"
+    ELAN_UNIX_URL = (
+        "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh"
+    )
+    ELAN_WINDOWS_URL = (
+        "https://raw.githubusercontent.com/leanprover/elan/master/elan-init.ps1"
+    )
 
     # Official lean4 release archives (toolchain fallback for networks
     # where release.lean-lang.org is unreachable but github.com is)
@@ -235,7 +242,9 @@ class EnvironmentManager:
 
         try:
             if self._is_windows:
-                return self._install_elan_windows(elan_home, expected_sha256, on_progress)
+                return self._install_elan_windows(
+                    elan_home, expected_sha256, on_progress
+                )
             else:
                 return self._install_elan_unix(elan_home, expected_sha256, on_progress)
         except Exception as e:
@@ -273,7 +282,13 @@ class EnvironmentManager:
         # The toolchain itself is installed separately (install_lean_toolchain),
         # so a slow or failed toolchain download can't fail the elan install.
         result = subprocess.run(
-            [str(installer_path), "-y", "--no-modify-path", "--default-toolchain", "none"],
+            [
+                str(installer_path),
+                "-y",
+                "--no-modify-path",
+                "--default-toolchain",
+                "none",
+            ],
             env=env,
             capture_output=True,
             text=True,
@@ -317,10 +332,15 @@ class EnvironmentManager:
         # toolchain is installed separately via install_lean_toolchain).
         result = subprocess.run(
             [
-                "powershell", "-ExecutionPolicy", "Bypass",
-                "-File", ps1_path,
-                "-NoPrompt", "-NoModifyPath",
-                "-DefaultToolchain", "none",
+                "powershell",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                ps1_path,
+                "-NoPrompt",
+                "-NoModifyPath",
+                "-DefaultToolchain",
+                "none",
             ],
             env=env,
             capture_output=True,
@@ -456,7 +476,7 @@ class EnvironmentManager:
                 archive.unlink(missing_ok=True)
                 return False
 
-        dest = self.app_dir / "toolchains" / archive.name[:-len(".zip")]
+        dest = self.app_dir / "toolchains" / archive.name[: -len(".zip")]
         try:
             _extract_zip_with_permissions(archive, dest)
         except Exception as e:
@@ -464,8 +484,10 @@ class EnvironmentManager:
             return False
 
         # The archive contains a single top-level directory holding bin/lean
-        toolchain_root = dest if (dest / "bin").is_dir() else next(
-            (p for p in sorted(dest.iterdir()) if (p / "bin").is_dir()), None
+        toolchain_root = (
+            dest
+            if (dest / "bin").is_dir()
+            else next((p for p in sorted(dest.iterdir()) if (p / "bin").is_dir()), None)
         )
         if toolchain_root is None:
             logger.error(f"No bin/ directory found in extracted archive at {dest}")
@@ -478,7 +500,10 @@ class EnvironmentManager:
         ):
             try:
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=60,
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                     env=self._get_env(),
                 )
             except Exception as e:
@@ -654,10 +679,9 @@ class EnvironmentManager:
         Checks for lean-toolchain and lakefile.lean presence.
         """
         has_toolchain = (repo_path / "lean-toolchain").exists()
-        has_lakefile = (
-            (repo_path / "lakefile.lean").exists()
-            or (repo_path / "lakefile.toml").exists()
-        )
+        has_lakefile = (repo_path / "lakefile.lean").exists() or (
+            repo_path / "lakefile.toml"
+        ).exists()
 
         if not has_toolchain:
             logger.warning(f"No lean-toolchain found in {repo_path}")
@@ -812,9 +836,15 @@ def main():
     if args.status:
         status = manager.get_status()
         print(f"App Directory: {status.app_dir}")
-        print(f"Elan: {'[OK] ' + (status.elan_version or '') if status.elan_installed else '[X] Not installed'}")
-        print(f"Lean: {'[OK] ' + (status.lean_version or '') if status.lean_installed else '[X] Not installed'}")
-        print(f"Lake: {'[OK] ' + (status.lake_version or '') if status.lake_installed else '[X] Not installed'}")
+        print(
+            f"Elan: {'[OK] ' + (status.elan_version or '') if status.elan_installed else '[X] Not installed'}"
+        )
+        print(
+            f"Lean: {'[OK] ' + (status.lean_version or '') if status.lean_installed else '[X] Not installed'}"
+        )
+        print(
+            f"Lake: {'[OK] ' + (status.lake_version or '') if status.lake_installed else '[X] Not installed'}"
+        )
         print(f"Ready: {'[OK]' if status.is_ready() else '[X]'}")
 
     elif args.install:

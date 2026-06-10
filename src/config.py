@@ -15,7 +15,10 @@ from pathlib import Path
 @dataclass
 class LLMConfig:
     """Configuration for LLM providers."""
-    provider: str = "openrouter"  # "openrouter", "openai", "anthropic", "google", "ollama", or "chatgpt"
+
+    provider: str = (
+        "openrouter"  # "openrouter", "openai", "anthropic", "google", "ollama", or "chatgpt"
+    )
     api_key: Optional[str] = None
     model: str = "google/gemini-2.5-flash"
     reasoning_effort: Optional[str] = None  # "none", "low", "medium", "high", "xhigh"
@@ -37,24 +40,24 @@ class LLMConfig:
 @dataclass
 class CostConfig:
     """Configuration for cost management."""
+
     max_cost_usd: float = 5.0
     cost_per_1k_input_tokens: float = 0.01
     cost_per_1k_output_tokens: float = 0.03
     current_spent: float = 0.0
-    
+
     def add_usage(self, input_tokens: int, output_tokens: int) -> float:
         """Add token usage and return the cost."""
-        cost = (
-            (input_tokens / 1000) * self.cost_per_1k_input_tokens +
-            (output_tokens / 1000) * self.cost_per_1k_output_tokens
-        )
+        cost = (input_tokens / 1000) * self.cost_per_1k_input_tokens + (
+            output_tokens / 1000
+        ) * self.cost_per_1k_output_tokens
         self.current_spent += cost
         return cost
-    
+
     def check_budget(self) -> bool:
         """Check if we're still within budget."""
         return self.current_spent < self.max_cost_usd
-    
+
     def remaining_budget(self) -> float:
         """Return remaining budget in USD."""
         return max(0, self.max_cost_usd - self.current_spent)
@@ -63,11 +66,16 @@ class CostConfig:
 @dataclass
 class SolverConfig:
     """Configuration for the solver loop."""
+
     max_retries: int = 10
     build_timeout_seconds: int = 60
-    work_dir: Path = field(default_factory=lambda: Path.home() / ".erdos-prover" / "work")
-    cache_dir: Path = field(default_factory=lambda: Path.home() / ".erdos-prover" / "cache")
-    
+    work_dir: Path = field(
+        default_factory=lambda: Path.home() / ".erdos-prover" / "work"
+    )
+    cache_dir: Path = field(
+        default_factory=lambda: Path.home() / ".erdos-prover" / "cache"
+    )
+
     def ensure_directories(self) -> None:
         """Ensure all required directories exist."""
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -77,16 +85,17 @@ class SolverConfig:
 @dataclass
 class Config:
     """Main configuration container."""
+
     llm: LLMConfig = field(default_factory=LLMConfig)
     cost: CostConfig = field(default_factory=CostConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
     manifest_url: Optional[str] = None
-    
+
     @classmethod
     def from_env(cls) -> "Config":
         """Create configuration from environment variables."""
         config = cls()
-        
+
         # LLM configuration
         if os.environ.get("OPENROUTER_API_KEY"):
             config.llm.provider = "openrouter"
@@ -109,7 +118,7 @@ class Config:
         elif os.environ.get("OLLAMA_URL"):
             config.llm.provider = "ollama"
             config.llm.ollama_url = os.environ["OLLAMA_URL"]
-        
+
         if os.environ.get("LLM_MODEL"):
             config.llm.model = os.environ["LLM_MODEL"]
 
@@ -119,18 +128,18 @@ class Config:
         # Cost configuration
         if os.environ.get("MAX_COST_USD"):
             config.cost.max_cost_usd = float(os.environ["MAX_COST_USD"])
-        
+
         # Solver configuration
         if os.environ.get("MAX_RETRIES"):
             config.solver.max_retries = int(os.environ["MAX_RETRIES"])
-        
+
         if os.environ.get("BUILD_TIMEOUT"):
             config.solver.build_timeout_seconds = int(os.environ["BUILD_TIMEOUT"])
-        
+
         # Manifest URL
         if os.environ.get("MANIFEST_URL"):
             config.manifest_url = os.environ["MANIFEST_URL"]
-        
+
         # Early validation - check if API key is set when not using mock
         if config.llm.provider in LLMConfig.KEYED_PROVIDERS and not config.llm.api_key:
             # Check if we're in testing/mock mode
@@ -139,40 +148,52 @@ class Config:
                     f"API key required for {config.llm.provider} provider. "
                     f"Set {config.llm.provider.upper()}_API_KEY environment variable or ERDOS_MOCK_MODE=1 for testing."
                 )
-        
+
         return config
-    
+
     @classmethod
     def from_file(cls, path: Path) -> "Config":
         """Load configuration from a JSON file."""
         with open(path, "r") as f:
             data = json.load(f)
-        
+
         config = cls()
-        
+
         if "llm" in data:
             llm_data = data["llm"]
             config.llm.provider = llm_data.get("provider", config.llm.provider)
             config.llm.api_key = llm_data.get("api_key", config.llm.api_key)
             config.llm.model = llm_data.get("model", config.llm.model)
-            config.llm.reasoning_effort = llm_data.get("reasoning_effort", config.llm.reasoning_effort)
-            config.llm.temperature_prover = llm_data.get("temperature_prover", config.llm.temperature_prover)
-            config.llm.temperature_critic = llm_data.get("temperature_critic", config.llm.temperature_critic)
+            config.llm.reasoning_effort = llm_data.get(
+                "reasoning_effort", config.llm.reasoning_effort
+            )
+            config.llm.temperature_prover = llm_data.get(
+                "temperature_prover", config.llm.temperature_prover
+            )
+            config.llm.temperature_critic = llm_data.get(
+                "temperature_critic", config.llm.temperature_critic
+            )
             config.llm.ollama_url = llm_data.get("ollama_url", config.llm.ollama_url)
-        
+
         if "cost" in data:
             cost_data = data["cost"]
-            config.cost.max_cost_usd = cost_data.get("max_cost_usd", config.cost.max_cost_usd)
-        
+            config.cost.max_cost_usd = cost_data.get(
+                "max_cost_usd", config.cost.max_cost_usd
+            )
+
         if "solver" in data:
             solver_data = data["solver"]
-            config.solver.max_retries = solver_data.get("max_retries", config.solver.max_retries)
-            config.solver.build_timeout_seconds = solver_data.get("build_timeout_seconds", config.solver.build_timeout_seconds)
+            config.solver.max_retries = solver_data.get(
+                "max_retries", config.solver.max_retries
+            )
+            config.solver.build_timeout_seconds = solver_data.get(
+                "build_timeout_seconds", config.solver.build_timeout_seconds
+            )
             if "work_dir" in solver_data:
                 config.solver.work_dir = Path(solver_data["work_dir"])
             if "cache_dir" in solver_data:
                 config.solver.cache_dir = Path(solver_data["cache_dir"])
-        
+
         config.manifest_url = data.get("manifest_url", config.manifest_url)
 
         # Fall back to env var for API key if not in config file
@@ -189,7 +210,7 @@ class Config:
                 config.llm.api_key = os.environ.get(env_key)
 
         return config
-    
+
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""
         return {
@@ -211,7 +232,7 @@ class Config:
             },
             "manifest_url": self.manifest_url,
         }
-    
+
     def save(self, path: Path) -> None:
         """Save configuration to a JSON file."""
         with open(path, "w") as f:

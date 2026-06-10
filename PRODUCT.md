@@ -34,7 +34,7 @@ The page must be the opposite of the generic AI project page. Specifically banne
 - **The AI-slop landing kit**: purple-to-blue gradients, centered hero over a dark mesh, glassmorphism, glowing particles, three equal feature cards, Inter + slate-900, gradient text.
 - **Terminal cosplay**: the "dark hacker dashboard" reflex for anything developer-shaped. Real code appears on this page because the code is the evidence, not because mono-on-black looks technical.
 - **Editorial-typographic costume**: oversized italic serif headline + tracked mono eyebrows above every section + hairline-ruled three-column restraint. Saturated lane; not this voice.
-- **Marketing register**: testimonials, logo walls, "trusted by", invented metrics, "blazing fast", "next-generation", any verb like elevate/unleash/supercharge. The project has 323 test functions and 4 documented bug fixes; those numbers are the only flex allowed.
+- **Marketing register**: testimonials, logo walls, "trusted by", invented metrics, "blazing fast", "next-generation", any verb like elevate/unleash/supercharge. The project has 342 test functions and 4 documented bug fixes; those numbers are the only flex allowed.
 - **Fabrication of any kind**: no stock imagery, no fake screenshots assembled from divs, no invented benchmark claims, no providers the repo does not implement.
 
 ## Design Principles

@@ -42,6 +42,7 @@ class AnthropicProvider(LLMProvider):
     ):
         try:
             import anthropic
+
             self._anthropic = anthropic
         except ImportError:
             raise ImportError(
@@ -64,12 +65,18 @@ class AnthropicProvider(LLMProvider):
 
     def _is_transient(self, error: Exception) -> bool:
         """Check if an error is transient and should be retried."""
-        if hasattr(self._anthropic, 'RateLimitError') and isinstance(error, self._anthropic.RateLimitError):
+        if hasattr(self._anthropic, "RateLimitError") and isinstance(
+            error, self._anthropic.RateLimitError
+        ):
             return True
-        if hasattr(self._anthropic, 'OverloadedError') and isinstance(error, self._anthropic.OverloadedError):
+        if hasattr(self._anthropic, "OverloadedError") and isinstance(
+            error, self._anthropic.OverloadedError
+        ):
             return True
-        if hasattr(self._anthropic, 'APIStatusError') and isinstance(error, self._anthropic.APIStatusError):
-            return getattr(error, 'status_code', 0) in self._TRANSIENT_STATUS_CODES
+        if hasattr(self._anthropic, "APIStatusError") and isinstance(
+            error, self._anthropic.APIStatusError
+        ):
+            return getattr(error, "status_code", 0) in self._TRANSIENT_STATUS_CODES
 
         error_str = str(error).lower()
         if any(kw in error_str for kw in ["rate limit", "overloaded", "unavailable"]):
@@ -112,7 +119,7 @@ class AnthropicProvider(LLMProvider):
                 last_error = e
                 if attempt < self.max_retries and self._is_transient(e):
                     delay = min(
-                        self.BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                        self.BASE_DELAY * (2**attempt) + random.uniform(0, 1),
                         self.MAX_DELAY,
                     )
                     logger.warning(
@@ -123,10 +130,12 @@ class AnthropicProvider(LLMProvider):
                     continue
                 break
 
-        logger.error(f"Anthropic generation failed after {self.max_retries + 1} attempts: {last_error}")
+        logger.error(
+            f"Anthropic generation failed after {self.max_retries + 1} attempts: {last_error}"
+        )
         raise AnthropicAPIError(
             f"Generation failed: {last_error}",
-            status_code=getattr(last_error, 'status_code', None),
+            status_code=getattr(last_error, "status_code", None),
         ) from last_error
 
     def __repr__(self) -> str:

@@ -68,7 +68,9 @@ class ChatGPTProvider(LLMProvider):
 
         self.access_token = auth_data["access_token"]
         self.refresh_token = auth_data["refresh_token"]
-        self.account_id = auth_data.get("account_id") or self._extract_account_id(self.access_token)
+        self.account_id = auth_data.get("account_id") or self._extract_account_id(
+            self.access_token
+        )
         self.auth_path = auth_path
 
         # Check token expiry from JWT
@@ -117,11 +119,13 @@ class ChatGPTProvider(LLMProvider):
     def _refresh_tokens(self) -> None:
         """Refresh the access token using the refresh token."""
         logger.info("Refreshing ChatGPT OAuth token...")
-        data = urllib.parse.urlencode({
-            "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
-            "client_id": self.CLIENT_ID,
-        }).encode()
+        data = urllib.parse.urlencode(
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": self.refresh_token,
+                "client_id": self.CLIENT_ID,
+            }
+        ).encode()
 
         req = urllib.request.Request(
             self.TOKEN_URL,
@@ -132,6 +136,7 @@ class ChatGPTProvider(LLMProvider):
 
         try:
             import urllib.parse
+
             with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode())
 
@@ -197,9 +202,7 @@ class ChatGPTProvider(LLMProvider):
                         {
                             "type": "message",
                             "role": "user",
-                            "content": [
-                                {"type": "input_text", "text": prompt}
-                            ],
+                            "content": [{"type": "input_text", "text": prompt}],
                         }
                     ],
                     "store": False,
@@ -279,7 +282,7 @@ class ChatGPTProvider(LLMProvider):
 
                 # 429 = rate limit, retry with backoff
                 if status == 429 and attempt < self.max_retries:
-                    delay = min(self.BASE_DELAY * (2 ** attempt), self.MAX_DELAY)
+                    delay = min(self.BASE_DELAY * (2**attempt), self.MAX_DELAY)
                     logger.info(f"Rate limited, waiting {delay:.1f}s")
                     time.sleep(delay)
                     continue
@@ -287,7 +290,7 @@ class ChatGPTProvider(LLMProvider):
                 # 404 with usage_limit = treat as rate limit
                 if status == 404 and "usage_limit" in error_body.lower():
                     if attempt < self.max_retries:
-                        delay = min(self.BASE_DELAY * (2 ** attempt), self.MAX_DELAY)
+                        delay = min(self.BASE_DELAY * (2**attempt), self.MAX_DELAY)
                         logger.info(f"Usage limit hit, waiting {delay:.1f}s")
                         time.sleep(delay)
                         continue
@@ -304,7 +307,7 @@ class ChatGPTProvider(LLMProvider):
                     f"ChatGPT API error on attempt {attempt + 1}/{self.max_retries + 1}: {e}"
                 )
                 if attempt < self.max_retries:
-                    delay = min(self.BASE_DELAY * (2 ** attempt), self.MAX_DELAY)
+                    delay = min(self.BASE_DELAY * (2**attempt), self.MAX_DELAY)
                     time.sleep(delay)
                     continue
                 break

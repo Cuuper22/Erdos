@@ -26,10 +26,10 @@ from src.sandbox import _discover_elan_bin, run_lake_build
 from src.solver import AgentProver, FeedbackSanitizer
 from src.llm import MockLLMProvider
 
-
 # ════════════════════════════════════════════════════════════════════
 # DEMO 1: Axiom Abuse Security Hole — NOW CAUGHT
 # ════════════════════════════════════════════════════════════════════
+
 
 class TestDemo_AxiomAbuse(unittest.TestCase):
     """
@@ -74,8 +74,7 @@ class TestDemo_AxiomAbuse(unittest.TestCase):
 
         self.assertTrue(len(errors) > 0, "Axiom abuse must be caught")
         self.assertTrue(
-            any("axiom" in e.lower() for e in errors),
-            "Error must mention 'axiom'"
+            any("axiom" in e.lower() for e in errors), "Error must mention 'axiom'"
         )
 
         print("\n[PASS] Axiom abuse is now properly detected!")
@@ -112,13 +111,14 @@ class TestDemo_AxiomAbuse(unittest.TestCase):
         self.assertFalse(result.is_valid, "Axiom cheat must fail validation")
         self.assertTrue(
             any("axiom" in e.lower() for e in result.errors),
-            "Validation errors must mention axiom"
+            "Validation errors must mention axiom",
         )
 
 
 # ════════════════════════════════════════════════════════════════════
 # DEMO 2: Sandbox PATH Discovery — elan Now Found
 # ════════════════════════════════════════════════════════════════════
+
 
 class TestDemo_SandboxPATH(unittest.TestCase):
     """
@@ -145,7 +145,9 @@ class TestDemo_SandboxPATH(unittest.TestCase):
             lean_path = elan_bin / "lean"
             print(f"  lake exists: {lake_path.exists()}")
             print(f"  lean exists: {lean_path.exists()}")
-            self.assertTrue(lake_path.exists(), "lake binary must exist in discovered dir")
+            self.assertTrue(
+                lake_path.exists(), "lake binary must exist in discovered dir"
+            )
         else:
             print("\n[SKIP] elan not installed on this system")
             # This is OK — the test documents the discovery mechanism
@@ -178,12 +180,15 @@ class TestDemo_SandboxPATH(unittest.TestCase):
             # Either succeeds (lake found) or gives a clean error message
             self.assertIsNotNone(result)
             if not result.success:
-                print(f"  Build error (expected without Lean project): {result.stderr[:100]}")
+                print(
+                    f"  Build error (expected without Lean project): {result.stderr[:100]}"
+                )
 
 
 # ════════════════════════════════════════════════════════════════════
 # DEMO 3: Sorry Replacement — Now Targets Proof Body Only
 # ════════════════════════════════════════════════════════════════════
+
 
 class TestDemo_SorryReplacement(unittest.TestCase):
     """
@@ -213,7 +218,7 @@ class TestDemo_SorryReplacement(unittest.TestCase):
         replacement = "rfl"
 
         print(f"\n[INPUT] Original code:")
-        for line in original.strip().split('\n'):
+        for line in original.strip().split("\n"):
             print(f"  {line}")
 
         print(f"\n[LLM RESPONSE] {replacement}")
@@ -221,18 +226,20 @@ class TestDemo_SorryReplacement(unittest.TestCase):
         result = self.prover._clean_response(replacement, original)
 
         print(f"\n[OUTPUT] Result:")
-        for line in result.strip().split('\n'):
+        for line in result.strip().split("\n"):
             print(f"  {line}")
 
         # The comment should still contain 'sorry'
-        self.assertIn("-- This proof used to have sorry", result,
-                       "Comment must be preserved")
+        self.assertIn(
+            "-- This proof used to have sorry", result, "Comment must be preserved"
+        )
         # The proof body should have 'rfl' instead of 'sorry'
         self.assertIn("rfl", result, "Proof body must have the replacement")
         # There should be exactly one 'sorry' left (in the comment)
         sorry_count = result.count("sorry")
-        self.assertEqual(sorry_count, 1,
-                         f"Expected 1 sorry (in comment), found {sorry_count}")
+        self.assertEqual(
+            sorry_count, 1, f"Expected 1 sorry (in comment), found {sorry_count}"
+        )
 
         print("\n[PASS] Comment sorry preserved, proof body sorry replaced!")
         print("=" * 70)
@@ -255,13 +262,15 @@ class TestDemo_SorryReplacement(unittest.TestCase):
         """)
         result = self.prover._clean_response("trivial", original)
         # First code sorry replaced, second remains, comment remains
-        self.assertEqual(result.count("sorry"), 2,
-                         "Should replace only first code sorry")
+        self.assertEqual(
+            result.count("sorry"), 2, "Should replace only first code sorry"
+        )
 
 
 # ════════════════════════════════════════════════════════════════════
 # DEMO 4: elan Installer Cache — No Redundant Downloads
 # ════════════════════════════════════════════════════════════════════
+
 
 class TestDemo_ElanCache(unittest.TestCase):
     """
@@ -284,12 +293,13 @@ class TestDemo_ElanCache(unittest.TestCase):
         source = src_path.read_text()
 
         # Check that 'or True' is gone
-        lines = source.split('\n')
+        lines = source.split("\n")
         for i, line in enumerate(lines, 1):
-            if 'installer_path.exists()' in line:
+            if "installer_path.exists()" in line:
                 print(f"\n[SOURCE] Line {i}: {line.strip()}")
-                self.assertNotIn("or True", line,
-                                 "The 'or True' debug hack must be removed")
+                self.assertNotIn(
+                    "or True", line, "The 'or True' debug hack must be removed"
+                )
                 print("  ✓ No 'or True' — cache works correctly")
 
         print("\n[BEHAVIOR]")
@@ -302,6 +312,7 @@ class TestDemo_ElanCache(unittest.TestCase):
 # ════════════════════════════════════════════════════════════════════
 # DEMO 5: LLM Feedback Isolation — Eval Harness Hidden
 # ════════════════════════════════════════════════════════════════════
+
 
 class TestDemo_FeedbackIsolation(unittest.TestCase):
     """

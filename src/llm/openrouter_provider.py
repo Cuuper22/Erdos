@@ -70,7 +70,10 @@ class OpenRouterProvider(LLMProvider):
             return error.code in self._TRANSIENT_STATUS_CODES
 
         error_str = str(error).lower()
-        if any(kw in error_str for kw in ["rate limit", "overloaded", "unavailable", "timed out"]):
+        if any(
+            kw in error_str
+            for kw in ["rate limit", "overloaded", "unavailable", "timed out"]
+        ):
             return True
         return False
 
@@ -81,12 +84,14 @@ class OpenRouterProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> tuple[str, int, int]:
         """Generate a response using OpenRouter with retry logic."""
-        payload = json.dumps({
-            "model": self.model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        ).encode("utf-8")
 
         last_error = None
         for attempt in range(self.max_retries + 1):
@@ -114,7 +119,9 @@ class OpenRouterProvider(LLMProvider):
                 # OpenRouter reports token usage in the OpenAI format
                 usage = data.get("usage") or {}
                 input_tokens = usage.get("prompt_tokens") or len(prompt) // 4
-                output_tokens = usage.get("completion_tokens") or len(response_text) // 4
+                output_tokens = (
+                    usage.get("completion_tokens") or len(response_text) // 4
+                )
 
                 logger.debug(
                     f"Generated {output_tokens} tokens "
@@ -137,7 +144,7 @@ class OpenRouterProvider(LLMProvider):
                     )
                 if attempt < self.max_retries and self._is_transient(e):
                     delay = min(
-                        self.BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                        self.BASE_DELAY * (2**attempt) + random.uniform(0, 1),
                         self.MAX_DELAY,
                     )
                     logger.warning(
@@ -148,10 +155,12 @@ class OpenRouterProvider(LLMProvider):
                     continue
                 break
 
-        logger.error(f"OpenRouter generation failed after {self.max_retries + 1} attempts: {last_error}")
+        logger.error(
+            f"OpenRouter generation failed after {self.max_retries + 1} attempts: {last_error}"
+        )
         raise OpenRouterAPIError(
             f"Generation failed: {last_error}",
-            status_code=getattr(last_error, 'code', None),
+            status_code=getattr(last_error, "code", None),
         ) from last_error
 
     def __repr__(self) -> str:

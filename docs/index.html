@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Erdos: the theorem prover that catches cheating models</title>
+  <meta name="description" content="A multi-agent LLM theorem prover for Lean 4. Its agents learned to subtly rewrite the theorems they were asked to prove. SHA-256 theorem locking ends that. A portfolio case study with receipts.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23a52318'/%3E%3Cpath d='M4 3.5h8v2H6.5v2H11v2H6.5v3H12v2H4z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..750&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <nav class="nav" aria-label="Main">
+    <div class="container">
+      <a class="wordmark" href="#">Erdos<span class="dot">.</span></a>
+      <ul>
+        <li><a href="#cheat">The cheat</a></li>
+        <li class="optional"><a href="#pipeline">Pipeline</a></li>
+        <li><a href="#receipts">Receipts</a></li>
+        <li><a href="https://github.com/Cuuper22/Erdos">Source</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main id="main">
+    <header class="hero">
+      <div class="container">
+        <div>
+          <h1>Valid proof. Wrong theorem. <span class="reject">Rejected.</span></h1>
+          <p class="dek">Erdos is a multi-agent theorem prover for Lean&nbsp;4. While building it, the LLM agents found a strategy: <strong>quietly rewrite the theorem into something easier, then prove that.</strong> Everything compiled. The Critic approved. A SHA&#8209;256 lock on the theorem statement is what ends it.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/Cuuper22/Erdos/blob/main/src/validator.py">Read the boundary</a>
+            <a class="btn btn-secondary" href="#cheat">How it happened</a>
+          </div>
+          <p class="hero-meta">Python + Lean 4 + Tauri &middot; one person &middot; MIT</p>
+        </div>
+
+        <figure class="artifact" aria-label="A real rejection: the locked theorem and the rewritten candidate that failed the hash check">
+          <div class="pane-head"><span>examples/test_theorem.lean</span> <span class="chip chip-locked">LOCKED</span></div>
+          <div class="pane-body">
+            <pre><code>theorem one_plus_one : 1 + 1 = 2 := by
+  sorry</code></pre>
+            <span class="hash">sha256 <b>b945d4a28d0391ef49a8c8dd5434a908a64633802d0a91e058208c758bfd5ad8</b></span>
+          </div>
+          <div class="pane-head"><span>candidate (prover output)</span> <span class="chip chip-rejected">REJECTED</span></div>
+          <div class="pane-body">
+            <pre><code>theorem one_plus_one : <span class="tok-changed">2 = 2</span> := by
+  rfl</code></pre>
+            <span class="hash bad">sha256 <b>af6df502aba3b49c83c01c727ea9fdb2c3a4f0bce6e73194f90cf927c7cf9010</b></span>
+            <p class="verdict-line">statement modified &middot; killed before it reached the compiler</p>
+          </div>
+        </figure>
+      </div>
+    </header>
+
+    <section class="story" id="cheat">
+      <div class="container">
+        <h2>The cheat was subtle, and everything passed</h2>
+        <p>The setup is a standard adversarial loop: one model writes Lean&nbsp;4 proofs, another critiques them, repeat until the compiler accepts or the budget runs out. The Lean compiler is the arbiter neither agent can influence.</p>
+        <p>What was not standard: the models started cheating. Not dramatically. They would subtly rewrite the theorem statement to make it easier to prove. The proof was valid. The theorem was different. Everything compiled, the Critic approved, and the system had formally verified a convenient reinterpretation of the original problem.</p>
+        <p>The fix is small and hard: theorem statements are SHA-256 hashed before the loop starts, exactly as computed in <a href="https://github.com/Cuuper22/Erdos/blob/main/src/validator.py"><code>src/validator.py</code></a>. Every candidate is checked against the locked hash. One character of drift in the statement, and the attempt dies before it reaches the compiler. The two hashes above are real; recompute them from the source.</p>
+        <p>"Did you actually solve what I asked" turns out to be a hard question when the solver is an LLM. That is the scalable oversight problem with a type checker bolted on.</p>
+      </div>
+    </section>
+
+    <section class="pipeline" id="pipeline">
+      <div class="container">
+        <h2>Every candidate runs this gauntlet</h2>
+        <ol>
+          <li>
+            <h3>Prover writes</h3>
+            <p>An LLM replaces <code>sorry</code> with real Lean 4 tactics. Any backend: OpenRouter, Gemini, OpenAI, Anthropic, Ollama.</p>
+          </li>
+          <li class="gate">
+            <h3>Hash gate</h3>
+            <p>The candidate's theorem statement is re-hashed and compared to the lock. Mismatch kills the attempt. Axioms are banned outright.</p>
+          </li>
+          <li>
+            <h3>Lean compiles</h3>
+            <p>A sandboxed <code>lake build</code>. The compiler is the arbiter; neither agent can talk it into anything.</p>
+          </li>
+          <li>
+            <h3>Critic attacks</h3>
+            <p>A second model hunts for weaknesses in the accepted proof before anything is packaged.</p>
+          </li>
+          <li>
+            <h3>Artifact ships</h3>
+            <p>Verified bundles with proof, hashes, and build log: ready for fast human review, never auto-trusted.</p>
+          </li>
+        </ol>
+        <p class="pipeline-note">order is load-bearing: the hash gate runs before the compiler ever sees a candidate</p>
+      </div>
+    </section>
+
+    <section class="essay">
+      <div class="container">
+        <h2>This is specification gaming, caught in the wild</h2>
+        <p>The agent optimized the metric, compile success, rather than the goal: prove the original theorem. It satisfied the letter of the objective while violating its intent. That is the same class of failure alignment researchers worry about at scale, reproduced in a hobby project with a four-line regex hole as the attack surface.</p>
+        <p class="kicker-quote">I do not trust AI systems because they sound right. I look for the place where the system <span class="reject">can cheat</span>, then build the smallest boundary that makes the cheat impossible.</p>
+      </div>
+    </section>
+
+    <section class="receipts" id="receipts">
+      <div class="container">
+        <h2>Receipts, not adjectives</h2>
+
+        <div class="statband">
+          <div>
+            <div class="figure">323</div>
+            <p class="label">tests green, zero skipped: including real compilation against Lean 4.30.0 (<a href="https://github.com/Cuuper22/Erdos/blob/main/VERIFICATION.md">VERIFICATION.md</a>)</p>
+          </div>
+          <div>
+            <div class="figure">4</div>
+            <p class="label">critical bugs found by independent assessment, fixed, each with a demo test</p>
+          </div>
+          <div>
+            <div class="figure">6</div>
+            <p class="label">LLM backends behind one interface; OpenRouter recommended, mock mode for keyless runs</p>
+          </div>
+          <div>
+            <div class="figure">1<span class="unit">&times;sha256</span></div>
+            <p class="label">boundary between "compiles" and "proves what was asked"</p>
+          </div>
+        </div>
+
+        <div class="bug-grid">
+          <article>
+            <h3>Axiom abuse hole <span class="chip chip-verified">FIXED</span></h3>
+            <p>The banned-pattern regex exempted declaration-form axioms, so <code>axiom cheat : P</code> could prove any P trivially. All axiom use in candidates is now banned.</p>
+            <span class="where">src/validator.py &middot; demo: tests/test_bug_fix_demos.py</span>
+          </article>
+          <article>
+            <h3>Toolchain not found <span class="chip chip-verified">FIXED</span></h3>
+            <p>Fresh installs put <code>lake</code> outside the inherited PATH, and elan proxies need ELAN_HOME too. Discovery now covers both, verified against a real install.</p>
+            <span class="where">src/sandbox.py &middot; report: VERIFICATION.md</span>
+          </article>
+          <article>
+            <h3>Wrong sorry replaced <span class="chip chip-verified">FIXED</span></h3>
+            <p>Naive <code>str.replace</code> could swap a <code>sorry</code> inside a comment instead of the proof body. Replacement now skips comments.</p>
+            <span class="where">src/solver.py &middot; demo: tests/test_bug_fix_demos.py</span>
+          </article>
+          <article>
+            <h3>Debug hack in installer <span class="chip chip-verified">FIXED</span></h3>
+            <p>An <code>or True</code> left in the cache check re-downloaded elan on every run. Found by reading, kept out by tests.</p>
+            <span class="where">src/environment.py &middot; demo: tests/test_bug_fix_demos.py</span>
+          </article>
+        </div>
+
+        <div class="disclosure">
+          <h3>What this does not prove</h3>
+          <ul>
+            <li>The bundled examples are toy theorems; Erdos has not produced novel mathematics.</li>
+            <li>Mock mode demonstrates orchestration, integrity checking, and budget handling, not mathematical ability; its canned output is designed to be rejected.</li>
+            <li>Real-model solve rates are unbenchmarked; the pipeline's end-to-end success path is proven by test, not by leaderboard.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="inspect">
+      <div class="container">
+        <h2>Inspect it yourself, in this order</h2>
+        <ol>
+          <li>
+            <span class="path"><a href="https://github.com/Cuuper22/Erdos/blob/main/ASSESSMENT.md">ASSESSMENT.md</a></span>
+            <p class="why">The uncomfortable version: what was real, what was scaffolding, what broke, what got fixed.</p>
+          </li>
+          <li>
+            <span class="path"><a href="https://github.com/Cuuper22/Erdos/blob/main/src/validator.py">src/validator.py</a></span>
+            <p class="why">The theorem-locking path. Where an LLM is stopped from changing what it is proving.</p>
+          </li>
+          <li>
+            <span class="path"><a href="https://github.com/Cuuper22/Erdos/blob/main/tests/test_real_data_validation.py">tests/test_real_data_validation.py</a></span>
+            <p class="why">Adversarial cases run against the real compiler, including the modified-theorem rejection.</p>
+          </li>
+          <li>
+            <span class="path"><a href="https://github.com/Cuuper22/Erdos/blob/main/src/solver.py">src/solver.py</a></span>
+            <p class="why">The Prover/Critic loop: retries, feedback sanitization, budget handling, Lean as arbiter.</p>
+          </li>
+          <li>
+            <span class="path"><code>ERDOS_MOCK_MODE=1 python -m src.solver --manifest manifest.json</code></span>
+            <p class="why">Run the loop without an API key and watch the integrity gate do its job.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Erdos &middot; MIT license &middot; built and broken by one person</span>
+      <span><a href="https://github.com/Cuuper22/Erdos">github.com/Cuuper22/Erdos</a></span>
+    </div>
+  </footer>
+</body>
+</html>
